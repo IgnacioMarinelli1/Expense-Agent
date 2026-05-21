@@ -1,50 +1,70 @@
 <script lang="ts">
-    import '../app.css'
-    import { page } from '$app/stores'
+	import '../app.css'
+	import { page } from '$app/stores'
 
-    const navItems = [
-        { href: '/',          label: 'Chat',      icon: '💬' },
-        { href: '/gastos',    label: 'Gastos',    icon: '📋' },
-        { href: '/dashboard', label: 'Dashboard', icon: '📊' },
-    ]
+	const navItems = [
+		{ href: '/',          label: 'Chat',      icon: '💬' },
+		{ href: '/gastos',    label: 'Gastos',    icon: '📋' },
+		{ href: '/dashboard', label: 'Dashboard', icon: '📊' },
+	]
 </script>
 
-<div class="min-h-screen flex flex-col">
+<div style="min-height: 100vh; display: flex; flex-direction: column;">
 
-    <!-- Header -->
-    <header class="border-b px-6 py-4 flex items-center justify-between"
-            style="background: hsl(var(--card))">
-        <div class="flex items-center gap-2">
-            <span class="text-xl">🐑</span>
-            <span class="font-semibold text-lg">Al Día</span>
-            <span class="text-xs px-2 py-0.5 rounded-full"
-                  style="background: hsl(var(--secondary)); color: hsl(var(--muted-foreground))">
-        beta
-      </span>
-        </div>
-        <span class="text-sm" style="color: hsl(var(--muted-foreground))">
-      Mayo 2026
-    </span>
-    </header>
+	<header style="
+    border-bottom: 1px solid var(--border);
+    padding: 1rem 1.5rem;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: var(--card);
+  ">
+		<div style="display: flex; align-items: center; gap: 0.5rem;">
+			<span style="font-size: 1.25rem;">💸</span>
+			<span style="font-weight: 600; font-size: 1.1rem;">Al Día</span>
+			<span style="
+        font-size: 0.7rem;
+        padding: 0.1rem 0.5rem;
+        border-radius: 99px;
+        background: var(--secondary);
+        color: var(--muted-foreground);
+      ">beta</span>
+		</div>
+		<span style="font-size: 0.8rem; color: var(--muted-foreground);">Mayo 2026</span>
+	</header>
 
-    <!-- Contenido principal -->
-    <main class="flex-1 overflow-hidden">
-        <slot />
-    </main>
+	<main style="flex: 1; overflow: hidden;">
+		<slot />
+	</main>
 
-    <!-- Navegación inferior (mobile-first) -->
-    <nav class="border-t flex"
-         style="background: hsl(var(--card))">
-        {#each navItems as item}
-            <a href={item.href}
-               class="flex-1 flex flex-col items-center gap-1 py-3 text-xs transition-colors"
-               style="color: {$page.url.pathname === item.href
-           ? 'hsl(var(--primary))'
-           : 'hsl(var(--muted-foreground))'}">
-                <span class="text-lg">{item.icon}</span>
-                {item.label}
-            </a>
-        {/each}
-    </nav>
+	<nav style="border-top: 1px solid var(--border); display: flex; background: var(--card);">
+		{#each navItems as item}
+			{@const activo = $page.url.pathname === item.href}
+			<a href={item.href} class="nav-link" class:activo>
+				<span style="font-size: 1.2rem;">{item.icon}</span>
+				{item.label}
+			</a>
+		{/each}
+	</nav>
 
 </div>
+
+<style>
+	.nav-link {
+		flex: 1;
+		display: flex;
+		flex-direction: column;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.75rem 0;
+		font-size: 0.75rem;
+		text-decoration: none;
+		color: var(--muted-foreground);
+		font-weight: 400;
+	}
+
+	.nav-link.activo {
+		color: var(--primary);
+		font-weight: 600;
+	}
+</style>

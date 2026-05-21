@@ -1,50 +1,62 @@
-@import 'tailwindcss';
+@import "tailwindcss";
+@import "tw-animate-css";
 
-@layer base {
-    :root {
-        --background: 0 0% 100%;
-        --foreground: 222 47% 11%;
-        --card: 0 0% 100%;
-        --card-foreground: 222 47% 11%;
-        --primary: 221 83% 53%;
-        --primary-foreground: 0 0% 100%;
-        --secondary: 210 40% 96%;
-        --secondary-foreground: 222 47% 11%;
-        --muted: 210 40% 96%;
-        --muted-foreground: 215 16% 47%;
-        --border: 214 32% 91%;
-        --radius: 0.5rem;
+@custom-variant dark (&:is(.dark *));
 
-        /* Colores de categorías argentinas */
-        --cat-luz: 45 93% 47%;
-        --cat-gas: 25 95% 53%;
-        --cat-agua: 199 89% 48%;
-        --cat-impuesto: 262 83% 58%;
-        --cat-expensas: 142 71% 45%;
-        --cat-telefonia: 346 77% 49%;
-    }
+@theme inline {
+    --color-background: var(--background);
+    --color-foreground: var(--foreground);
+    --font-sans: 'Inter', system-ui, sans-serif;
+    --radius-lg: var(--radius);
+    --radius-md: calc(var(--radius) - 2px);
+    --radius-sm: calc(var(--radius) - 4px);
+}
 
-    .dark {
-        --background: 222 47% 11%;
-        --foreground: 210 40% 98%;
-        --card: 222 47% 15%;
-        --card-foreground: 210 40% 98%;
-        --primary: 217 91% 60%;
-        --primary-foreground: 222 47% 11%;
-        --secondary: 217 33% 17%;
-        --secondary-foreground: 210 40% 98%;
-        --muted: 217 33% 17%;
-        --muted-foreground: 215 20% 65%;
-        --border: 217 33% 25%;
-    }
+:root {
+    --background: oklch(1 0 0);
+    --foreground: oklch(0.145 0 0);
+    --card: oklch(1 0 0);
+    --card-foreground: oklch(0.145 0 0);
+    --primary: oklch(0.205 0 0);
+    --primary-foreground: oklch(0.985 0 0);
+    --secondary: oklch(0.97 0 0);
+    --secondary-foreground: oklch(0.205 0 0);
+    --muted: oklch(0.97 0 0);
+    --muted-foreground: oklch(0.556 0 0);
+    --border: oklch(0.922 0 0);
+    --radius: 0.625rem;
 
-    * {
-        border-color: hsl(var(--border));
-    }
+    /* Categorías argentinas */
+    --cat-luz:      oklch(0.75 0.15 85);
+    --cat-gas:      oklch(0.70 0.18 50);
+    --cat-agua:     oklch(0.65 0.15 220);
+    --cat-impuesto: oklch(0.60 0.18 290);
+    --cat-expensas: oklch(0.65 0.15 145);
+    --cat-telefonia:oklch(0.60 0.18 15);
+}
 
-    body {
-        background-color: hsl(var(--background));
-        color: hsl(var(--foreground));
-        font-family: 'Inter', system-ui, sans-serif;
-    }
+.dark {
+    --background: oklch(0.145 0 0);
+    --foreground: oklch(0.985 0 0);
+    --card: oklch(0.205 0 0);
+    --card-foreground: oklch(0.985 0 0);
+    --primary: oklch(0.985 0 0);
+    --primary-foreground: oklch(0.205 0 0);
+    --secondary: oklch(0.269 0 0);
+    --secondary-foreground: oklch(0.985 0 0);
+    --muted: oklch(0.269 0 0);
+    --muted-foreground: oklch(0.708 0 0);
+    --border: oklch(0.269 0 0);
+}
+
+* {
+    border-color: var(--border);
+    box-sizing: border-box;
+}
+
+body {
+    background-color: var(--background);
+    color: var(--foreground);
+    font-family: var(--font-sans);
+    margin: 0;
 }
