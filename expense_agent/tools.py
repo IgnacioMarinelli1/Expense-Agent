@@ -7,7 +7,7 @@ from db.db import get_db
 
 
 async def save_expense(
-    user_id: str,
+    user_id: str,  # NOTE: for production, derive from authenticated session instead of model arg
     amount: float,
     currency: str = "ARS",
     payment_date: str = None,
@@ -19,6 +19,8 @@ async def save_expense(
     property_id: str = None,
 ) -> dict:
     """Guarda un gasto en la base de datos. Requeridos: user_id y amount."""
+    if not user_id or not user_id.strip():
+        return {"status": "error", "error_message": "user_id es requerido"}
     db = get_db()
     doc = {
         "user_id": user_id,
@@ -60,14 +62,16 @@ async def consultar_gastos(
     return {"status": "success", "gastos": docs, "count": len(docs)}
 
 
-async def consultar_gasto(payment_id: str) -> dict:
-    """Obtiene un gasto específico por su ID de MongoDB."""
+async def consultar_gasto(user_id: str, payment_id: str) -> dict:
+    """Obtiene un gasto específico por su ID. Requiere user_id para validar que el gasto pertenece al usuario."""
     from bson import ObjectId
     from bson.errors import InvalidId
 
+    if not user_id or not user_id.strip():
+        return {"status": "error", "error_message": "user_id es requerido"}
     db = get_db()
     try:
-        doc = await db["payments"].find_one({"_id": ObjectId(payment_id)})
+        doc = await db["payments"].find_one({"_id": ObjectId(payment_id), "user_id": user_id})
     except InvalidId:
         return {"status": "error", "error_message": f"ID inválido: {payment_id}"}
     if not doc:

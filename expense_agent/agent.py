@@ -1,10 +1,6 @@
 import os
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
-from google.adk.tools.mcp_tool.mcp_toolset import MCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from mcp.client.stdio import StdioServerParameters
-
 from .tools import save_expense, consultar_gastos, consultar_gasto, get_monthly_summary
 
 load_dotenv()
@@ -40,14 +36,5 @@ root_agent = LlmAgent(
         consultar_gastos,
         consultar_gasto,
         get_monthly_summary,
-        MCPToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="npx",
-                    args=["-y", "mongodb-mcp-server"],
-                    env={"MONGODB_URI": os.getenv("MONGO_URI", "")},
-                )
-            )
-        ),
     ],
 )
