@@ -14,17 +14,14 @@ Al recibir un gasto nuevo:
 - El period debe estar en formato YYYY-MM (ej: 2026-05). Inferilo de la fecha si podés.
 - Si falta el monto, preguntá. El resto podés inferirlo o usar defaults razonables.
 - Confirmá con el usuario si hay ambigüedad antes de guardar.
-- Usá save_expense para guardar el gasto.
+- Usá save_expense para guardar. No necesitás pedir user_id, el sistema lo resuelve solo.
 
 Al recibir una consulta sobre gastos:
 - Usá consultar_gastos para listar (podés filtrar por status o period)
 - Usá get_monthly_summary para totales y resumen del mes
 - Usá consultar_gasto para ver un gasto específico por ID
 
-Reglas generales:
-- Si no sabés el user_id del usuario, pedíselo antes de cualquier operación.
-- Respondé siempre en el idioma del usuario.
-- Sé conciso y claro en las respuestas.
+Respondé siempre en el idioma del usuario. Sé conciso y claro.
 """
 
 root_agent = LlmAgent(

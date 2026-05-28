@@ -5,9 +5,11 @@ from datetime import datetime
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db.db import get_db
 
+# user_id is resolved server-side, never from model input
+_USER_ID = "demo_user"
+
 
 async def save_expense(
-    user_id: str,  # NOTE: for production, derive from authenticated session instead of model arg
     amount: float,
     currency: str = "ARS",
     payment_date: str = None,
@@ -18,12 +20,12 @@ async def save_expense(
     input_method: str = "manual",
     property_id: str = None,
 ) -> dict:
-    """Guarda un gasto en la base de datos. Requeridos: user_id y amount."""
-    if not user_id or not user_id.strip():
-        return {"status": "error", "error_message": "user_id es requerido"}
+    """Guarda un gasto en la base de datos. Requerido: amount."""
+    if amount <= 0:
+        return {"status": "error", "error_message": "El monto debe ser mayor a 0"}
     db = get_db()
     doc = {
-        "user_id": user_id,
+        "user_id": _USER_ID,
         "amount": amount,
         "currency": currency,
         "payment_date": datetime.fromisoformat(payment_date) if payment_date else datetime.utcnow(),
@@ -41,14 +43,13 @@ async def save_expense(
 
 
 async def consultar_gastos(
-    user_id: str,
     status: str = None,
     period: str = None,
     limit: int = 20,
 ) -> dict:
     """Lista los gastos del usuario. Filtros opcionales: status (pending/paid/overdue), period (YYYY-MM)."""
     db = get_db()
-    query: dict = {"user_id": user_id}
+    query: dict = {"user_id": _USER_ID}
     if status: query["status"] = status
     if period: query["period"] = period
 
@@ -62,16 +63,14 @@ async def consultar_gastos(
     return {"status": "success", "gastos": docs, "count": len(docs)}
 
 
-async def consultar_gasto(user_id: str, payment_id: str) -> dict:
-    """Obtiene un gasto específico por su ID. Requiere user_id para validar que el gasto pertenece al usuario."""
+async def consultar_gasto(payment_id: str) -> dict:
+    """Obtiene un gasto específico por su ID de MongoDB."""
     from bson import ObjectId
     from bson.errors import InvalidId
 
-    if not user_id or not user_id.strip():
-        return {"status": "error", "error_message": "user_id es requerido"}
     db = get_db()
     try:
-        doc = await db["payments"].find_one({"_id": ObjectId(payment_id), "user_id": user_id})
+        doc = await db["payments"].find_one({"_id": ObjectId(payment_id), "user_id": _USER_ID})
     except InvalidId:
         return {"status": "error", "error_message": f"ID inválido: {payment_id}"}
     if not doc:
@@ -83,11 +82,11 @@ async def consultar_gasto(user_id: str, payment_id: str) -> dict:
     return {"status": "success", "gasto": doc}
 
 
-async def get_monthly_summary(user_id: str, period: str) -> dict:
+async def get_monthly_summary(period: str) -> dict:
     """Resumen de gastos de un mes. period en formato YYYY-MM (ej: 2026-05)."""
     db = get_db()
     pipeline = [
-        {"$match": {"user_id": user_id, "period": period}},
+        {"$match": {"user_id": _USER_ID, "period": period}},
         {"$group": {"_id": "$status", "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
         {
             "$group": {
