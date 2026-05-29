@@ -107,7 +107,7 @@ async def save_service(
     }
 
 
-async def consultar_servicios(
+async def get_services(
     category: str = None,
     active: bool = True,
     limit: int = 20,
@@ -127,10 +127,10 @@ async def consultar_servicios(
         for key in ("created_at", "updated_at"):
             if key in doc and hasattr(doc[key], "isoformat"):
                 doc[key] = doc[key].isoformat()
-    return {"status": "success", "servicios": docs, "count": len(docs)}
+    return {"status": "success", "services": docs, "count": len(docs)}
 
 
-async def consultar_gastos(
+async def get_expenses(
     status: str = None,
     period: str = None,
     limit: int = 20,
@@ -148,10 +148,10 @@ async def consultar_gastos(
         for key in ("payment_date", "due_date", "created_at"):
             if key in doc and hasattr(doc[key], "isoformat"):
                 doc[key] = doc[key].isoformat()
-    return {"status": "success", "gastos": docs, "count": len(docs)}
+    return {"status": "success", "expenses": docs, "count": len(docs)}
 
 
-async def consultar_gasto(payment_id: str) -> dict:
+async def get_expense(payment_id: str) -> dict:
     """Obtiene un gasto específico por su ID de MongoDB."""
     from bson import ObjectId
     from bson.errors import InvalidId
@@ -167,7 +167,7 @@ async def consultar_gasto(payment_id: str) -> dict:
     for key in ("payment_date", "due_date", "created_at"):
         if key in doc and hasattr(doc[key], "isoformat"):
             doc[key] = doc[key].isoformat()
-    return {"status": "success", "gasto": doc}
+    return {"status": "success", "expense": doc}
 
 
 async def get_monthly_summary(period: str) -> dict:

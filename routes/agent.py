@@ -13,7 +13,7 @@ from google.genai.types import Content, Part
 
 from expense_agent.agent import root_agent
 
-router = APIRouter(prefix="/agente", tags=["agente"])
+router = APIRouter(prefix="/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
 
 AGENT_MAX_ATTEMPTS = 2
@@ -46,8 +46,8 @@ SESSION_ID = "demo_session"
 USER_ID = "demo_user"
 
 
-class MensajeRequest(BaseModel):
-    texto: str
+class MessageRequest(BaseModel):
+    text: str
 
 
 async def _ensure_session():
@@ -100,15 +100,15 @@ async def _run_agent(content: Content, modality_label: str = "mensaje") -> str:
 
     for attempt in range(AGENT_MAX_ATTEMPTS):
         try:
-            respuesta = ""
+            response = ""
             async for event in _runner.run_async(
                 user_id=USER_ID,
                 session_id=SESSION_ID,
                 new_message=content,
             ):
                 if event.is_final_response() and event.content and event.content.parts:
-                    respuesta = event.content.parts[0].text or ""
-            return respuesta or "No pude procesar tu mensaje."
+                    response = event.content.parts[0].text or ""
+            return response or "No pude procesar tu mensaje."
         except Exception as exc:
             is_transient = isinstance(exc, ServerError) and (
                 exc.status in {"UNAVAILABLE", "INTERNAL"} or "503" in str(exc) or "500" in str(exc)
@@ -165,7 +165,7 @@ async def _audio_content(audio: UploadFile):
     if mime_type not in SUPPORTED_AUDIO_TYPES:
         logger.warning("Unsupported audio MIME type received: %s", audio.content_type)
         return {
-            "respuesta": (
+            "response": (
                 "No pude procesar ese formato de audio. "
                 "Probá grabar de nuevo; la app va a enviarlo en formato WAV."
             )
@@ -184,13 +184,13 @@ async def _audio_content(audio: UploadFile):
     )
 
 
-async def _image_content(imagen: UploadFile):
-    data = await imagen.read()
-    mime_type = (imagen.content_type or "image/jpeg").split(";")[0]
+async def _image_content(image: UploadFile):
+    data = await image.read()
+    mime_type = (image.content_type or "image/jpeg").split(";")[0]
     if mime_type not in SUPPORTED_IMAGE_TYPES:
-        logger.warning("Unsupported file MIME type received: %s", imagen.content_type)
+        logger.warning("Unsupported file MIME type received: %s", image.content_type)
         return {
-            "respuesta": (
+            "response": (
                 "No pude procesar ese formato de archivo. "
                 "Soportamos JPEG, PNG, WEBP, HEIC y PDF."
             )
@@ -208,51 +208,51 @@ async def _image_content(imagen: UploadFile):
     )
 
 
-@router.post("/mensaje")
-async def agente_mensaje(body: MensajeRequest):
-    content = Content(role="user", parts=[Part.from_text(text=body.texto)])
-    return {"respuesta": await _run_agent(content, modality_label="mensaje")}
+@router.post("/message")
+async def agent_message(body: MessageRequest):
+    content = Content(role="user", parts=[Part.from_text(text=body.text)])
+    return {"response": await _run_agent(content, modality_label="mensaje")}
 
 
-@router.post("/mensaje/stream")
-async def agente_mensaje_stream(body: MensajeRequest):
-    content = Content(role="user", parts=[Part.from_text(text=body.texto)])
+@router.post("/message/stream")
+async def agent_message_stream(body: MessageRequest):
+    content = Content(role="user", parts=[Part.from_text(text=body.text)])
     return _streaming_response(content, modality_label="mensaje")
 
 
 @router.post("/audio")
-async def agente_audio(audio: UploadFile = File(...)):
+async def agent_audio(audio: UploadFile = File(...)):
     content_or_error = await _audio_content(audio)
     if isinstance(content_or_error, dict):
         return content_or_error
-    return {"respuesta": await _run_agent(content_or_error, modality_label="audio")}
+    return {"response": await _run_agent(content_or_error, modality_label="audio")}
 
 
 @router.post("/audio/stream")
-async def agente_audio_stream(audio: UploadFile = File(...)):
+async def agent_audio_stream(audio: UploadFile = File(...)):
     content_or_error = await _audio_content(audio)
     if isinstance(content_or_error, dict):
         return StreamingResponse(
-            iter([_sse("error", {"message": content_or_error["respuesta"]})]),
+            iter([_sse("error", {"message": content_or_error["response"]})]),
             media_type="text/event-stream",
         )
     return _streaming_response(content_or_error, modality_label="audio")
 
 
-@router.post("/imagen")
-async def agente_imagen(imagen: UploadFile = File(...)):
-    content_or_error = await _image_content(imagen)
+@router.post("/image")
+async def agent_image(image: UploadFile = File(...)):
+    content_or_error = await _image_content(image)
     if isinstance(content_or_error, dict):
         return content_or_error
-    return {"respuesta": await _run_agent(content_or_error, modality_label="imagen")}
+    return {"response": await _run_agent(content_or_error, modality_label="imagen")}
 
 
-@router.post("/imagen/stream")
-async def agente_imagen_stream(imagen: UploadFile = File(...)):
-    content_or_error = await _image_content(imagen)
+@router.post("/image/stream")
+async def agent_image_stream(image: UploadFile = File(...)):
+    content_or_error = await _image_content(image)
     if isinstance(content_or_error, dict):
         return StreamingResponse(
-            iter([_sse("error", {"message": content_or_error["respuesta"]})]),
+            iter([_sse("error", {"message": content_or_error["response"]})]),
             media_type="text/event-stream",
         )
     return _streaming_response(content_or_error, modality_label="imagen")

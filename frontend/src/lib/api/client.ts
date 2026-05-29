@@ -67,30 +67,30 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
 
 export const api = {
     // Obtener todos los gastos del mes
-    getGastos(mes?: string) {
+    getExpenses(mes?: string) {
         const query = mes ? `?mes=${mes}` : ''
-        return request<any[]>(`/gastos${query}`)
+        return request<any[]>(`/expenses${query}`)
     },
 
     // Registrar un gasto nuevo
-    crearGasto(datos: {
-        tipo: string
-        categoria: string
-        monto: number
-        fecha: string
-        vencimiento?: string
-        pagado: boolean
-        notas?: string
+    createExpense(datos: {
+        type: string
+        category: string
+        amount: number
+        date: string
+        due_date?: string
+        paid: boolean
+        notes?: string
     }) {
-        return request('/gastos', {
+        return request('/expenses', {
             method: 'POST',
             body: JSON.stringify(datos)
         })
     },
 
     // Marcar un gasto como pagado
-    marcarPagado(id: string) {
-        return request(`/gastos/${id}/pagar`, {
+    markPaid(id: string) {
+        return request(`/expenses/${id}/pay`, {
             method: 'PATCH'
         })
     },
@@ -98,27 +98,27 @@ export const api = {
     // ── Agente ────────────────────────────────────────
 
     // Enviar mensaje de texto al agente
-    enviarMensaje(texto: string) {
-        return request<{ respuesta: string }>('/agente/mensaje', {
+    sendMessage(text: string) {
+        return request<{ response: string }>('/agent/message', {
             method: 'POST',
-            body: JSON.stringify({ texto })
+            body: JSON.stringify({ text })
         })
     },
 
-    streamMensaje(texto: string, handlers: StreamHandlers) {
-        return streamRequest('/agente/mensaje/stream', {
+    streamMessage(text: string, handlers: StreamHandlers) {
+        return streamRequest('/agent/message/stream', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ texto })
+            body: JSON.stringify({ text })
         }, handlers)
     },
 
     // Enviar audio al agente
-    async enviarAudio(blob: Blob) {
+    async sendAudio(blob: Blob) {
         const form = new FormData()
         form.append('audio', blob, 'grabacion.wav')
 
-        const res = await fetch(`${BASE_URL}/agente/audio`, {
+        const res = await fetch(`${BASE_URL}/agent/audio`, {
             method: 'POST',
             body: form
         })
@@ -131,31 +131,31 @@ export const api = {
         const form = new FormData()
         form.append('audio', blob, 'grabacion.wav')
 
-        return streamRequest('/agente/audio/stream', {
+        return streamRequest('/agent/audio/stream', {
             method: 'POST',
             body: form
         }, handlers)
     },
 
     // Enviar imagen al agente
-    async enviarImagen(file: File) {
+    async sendImage(file: File) {
         const form = new FormData()
-        form.append('imagen', file)
+        form.append('image', file)
 
-        const res = await fetch(`${BASE_URL}/agente/imagen`, {
+        const res = await fetch(`${BASE_URL}/agent/image`, {
             method: 'POST',
             body: form
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
-        return res.json() as Promise<{ respuesta: string }>
+        return res.json() as Promise<{ response: string }>
     },
 
-    streamImagen(file: File, handlers: StreamHandlers) {
+    streamImage(file: File, handlers: StreamHandlers) {
         const form = new FormData()
-        form.append('imagen', file)
+        form.append('image', file)
 
-        return streamRequest('/agente/imagen/stream', {
+        return streamRequest('/agent/image/stream', {
             method: 'POST',
             body: form
         }, handlers)
@@ -163,14 +163,14 @@ export const api = {
 
     // ── Resumen ───────────────────────────────────────
 
-    getResumen(mes?: string) {
+    getSummary(mes?: string) {
         const query = mes ? `?mes=${mes}` : ''
         return request<{
             total: number
-            pagado: number
-            pendiente: number
-            cantidad_pagos: number
-            cantidad_pendientes: number
-        }>(`/resumen${query}`)
+            paid: number
+            pending: number
+            payments_count: number
+            pending_count: number
+        }>(`/summary${query}`)
     }
 }

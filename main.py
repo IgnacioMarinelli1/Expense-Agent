@@ -8,7 +8,7 @@ from routes.summary import router as summary_router
 from routes.payments import router as payments_router
 from routes.users import router as users_router
 from routes.frontend_compat import router as compat_router
-from routes.agente import router as agente_router
+from routes.agent import router as agent_router
 
 
 @asynccontextmanager
@@ -31,7 +31,7 @@ app.add_middleware(
 )
 
 app.include_router(health_router)
-app.include_router(agente_router)
+app.include_router(agent_router)
 app.include_router(compat_router)
 app.include_router(summary_router)   # before payments to avoid /{payment_id} clash
 app.include_router(payments_router)

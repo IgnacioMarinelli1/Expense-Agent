@@ -1,0 +1,36 @@
+import { writable } from 'svelte/store'
+
+export type Expense = {
+    id: string
+    type: string
+    category: string
+    amount: number
+    date: string
+    due_date?: string
+    paid: boolean
+    notes?: string
+}
+
+export type Message = {
+    id: number
+    type: 'usuario' | 'agente'
+    text: string
+    loading?: boolean
+    fileUrl?: string
+    fileType?: 'image' | 'pdf'
+}
+
+// Store de gastos
+export const expenses = writable<Expense[]>([])
+
+// Store del chat
+export const messages = writable<Message[]>([
+    {
+        id: 1,
+        type: 'agente',
+        text: '¡Hola! Soy tu asistente de pagos. Podés decirme cosas como "Pagué la luz $18.500" o "¿Cuánto gasté este mes?"'
+    }
+])
+
+// Store de estado de carga
+export const loading = writable(false)

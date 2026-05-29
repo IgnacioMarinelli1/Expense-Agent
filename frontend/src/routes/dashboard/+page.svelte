@@ -4,28 +4,28 @@
     import { Receipt, Clock, ListChecks, PieChart, CalendarDays } from '@lucide/svelte'
 
     let total = $state(0)
-    let pagado = $state(0)
-    let pendiente = $state(0)
-    let cantidad_pagos = $state(0)
-    let cantidad_pendientes = $state(0)
-    let cargando = $state(true)
+    let paid = $state(0)
+    let pending = $state(0)
+    let payments_count = $state(0)
+    let pending_count = $state(0)
+    let loading = $state(true)
     let error = $state('')
 
-    const mesActual = new Date().toISOString().slice(0, 7) // YYYY-MM
-    const mesLabel = new Date().toLocaleString('es-AR', { month: 'long', year: 'numeric' })
+    const currentMonth = new Date().toISOString().slice(0, 7) // YYYY-MM
+    const monthLabel = new Date().toLocaleString('es-AR', { month: 'long', year: 'numeric' })
 
     onMount(async () => {
         try {
-            const res = await api.getResumen(mesActual)
+            const res = await api.getSummary(currentMonth)
             total = res.total
-            pagado = res.pagado
-            pendiente = res.pendiente
-            cantidad_pagos = res.cantidad_pagos
-            cantidad_pendientes = res.cantidad_pendientes
+            paid = res.paid
+            pending = res.pending
+            payments_count = res.payments_count
+            pending_count = res.pending_count
         } catch (e) {
             error = 'No se pudo cargar el resumen.'
         } finally {
-            cargando = false
+            loading = false
         }
     })
 
@@ -36,10 +36,10 @@
 
 <div class="flex max-h-[calc(100vh-120px)] flex-col gap-4 overflow-y-auto p-4">
     <h1 class="text-lg font-semibold capitalize">
-        Resumen {mesLabel}
+        Resumen {monthLabel}
     </h1>
 
-    {#if cargando}
+    {#if loading}
         <div class="py-8 text-center text-sm text-muted-foreground">
             Cargando resumen...
         </div>
@@ -55,21 +55,21 @@
                     <Receipt class="size-3.5" />
                     <p class="text-[0.7rem]">Gastado</p>
                 </div>
-                <p class="text-sm font-semibold">{fmt(pagado)}</p>
+                <p class="text-sm font-semibold">{fmt(paid)}</p>
             </div>
             <div class="rounded-xl border border-border bg-card p-3.5 shadow-sm transition-colors hover:border-foreground/20">
                 <div class="mb-1 flex items-center gap-1 text-muted-foreground">
                     <Clock class="size-3.5" />
                     <p class="text-[0.7rem]">Pendiente</p>
                 </div>
-                <p class="text-sm font-semibold">{fmt(pendiente)}</p>
+                <p class="text-sm font-semibold">{fmt(pending)}</p>
             </div>
             <div class="rounded-xl border border-border bg-card p-3.5 shadow-sm transition-colors hover:border-foreground/20">
                 <div class="mb-1 flex items-center gap-1 text-muted-foreground">
                     <ListChecks class="size-3.5" />
                     <p class="text-[0.7rem]">Pagos</p>
                 </div>
-                <p class="text-sm font-semibold">{cantidad_pagos} / {cantidad_pagos + cantidad_pendientes}</p>
+                <p class="text-sm font-semibold">{payments_count} / {payments_count + pending_count}</p>
             </div>
         </div>
 
@@ -85,7 +85,7 @@
                 <div class="text-right">
                     <p class="mb-1 text-xs opacity-80">Pagado</p>
                     <p class="text-base font-semibold">
-                        {total > 0 ? Math.round(pagado / total * 100) : 0}%
+                        {total > 0 ? Math.round(paid / total * 100) : 0}%
                     </p>
                 </div>
             </div>
