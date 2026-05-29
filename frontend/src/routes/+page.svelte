@@ -1,6 +1,7 @@
 <script lang="ts">
     import { mensajes, cargando } from '$lib/stores/gastos'
     import { api } from '$lib/api/client'
+    import { Bot, Mic, Square, ArrowUp } from '@lucide/svelte'
 
     let inputText = $state('')
     let isRecording = $state(false)
@@ -151,76 +152,71 @@
     }
 </script>
 
-<div style="display: flex; flex-direction: column; height: calc(100vh - 120px);">
+<div class="flex h-[calc(100vh-120px)] flex-col">
 
-    <div style="
-    flex: 1; overflow-y: auto;
-    padding: 1rem;
-    display: flex; flex-direction: column; gap: 0.75rem;
-  ">
+    <div class="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {#each $mensajes as mensaje (mensaje.id)}
-            <div style="
-        display: flex;
-        justify-content: {mensaje.tipo === 'usuario' ? 'flex-end' : 'flex-start'};
-        align-items: flex-end; gap: 0.5rem;
-      ">
+            <div
+                class="flex items-end gap-2 {mensaje.tipo === 'usuario'
+                    ? 'justify-end'
+                    : 'justify-start'}"
+            >
                 {#if mensaje.tipo === 'agente'}
-                    <div style="
-            width: 2rem; height: 2rem; border-radius: 50%;
-            background: var(--primary); color: var(--primary-foreground);
-            display: flex; align-items: center; justify-content: center;
-            font-size: 0.75rem; font-weight: 600; flex-shrink: 0;
-          ">AI</div>
+                    <div
+                        class="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
+                    >
+                        <Bot class="size-4" />
+                    </div>
                 {/if}
-                <div style="
-          max-width: 75%; padding: 0.75rem 1rem;
-          border-radius: {mensaje.tipo === 'usuario' ? '1rem 1rem 0.25rem 1rem' : '1rem 1rem 1rem 0.25rem'};
-          background: {mensaje.tipo === 'usuario' ? 'var(--primary)' : 'var(--secondary)'};
-          color: {mensaje.tipo === 'usuario' ? 'var(--primary-foreground)' : 'var(--foreground)'};
-          font-size: 0.875rem; line-height: 1.5;
-          opacity: {mensaje.cargando ? '0.6' : '1'};
-        ">
-                    {mensaje.texto}
+                <div
+                    class="max-w-[80%] px-4 py-2.5 text-sm leading-relaxed shadow-sm {mensaje.tipo === 'usuario'
+                        ? 'rounded-2xl rounded-br-sm bg-primary text-primary-foreground'
+                        : 'rounded-2xl rounded-bl-sm bg-secondary text-foreground'}"
+                >
+                    {#if mensaje.cargando}
+                        <span class="flex items-center gap-1 py-1" aria-label="Escribiendo">
+                            <span class="size-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.3s]"></span>
+                            <span class="size-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.15s]"></span>
+                            <span class="size-1.5 animate-bounce rounded-full bg-current opacity-60"></span>
+                        </span>
+                    {:else}
+                        {mensaje.texto}
+                    {/if}
                 </div>
             </div>
         {/each}
     </div>
 
-    <div style="
-    padding: 1rem; border-top: 1px solid var(--border);
-    background: var(--card); display: flex; gap: 0.5rem; align-items: flex-end;
-  ">
-    <textarea
+    <div class="flex items-end gap-2 border-t border-border bg-card p-4">
+        <textarea
             bind:value={inputText}
             onkeydown={handleKeydown}
             placeholder="Escribí un pago o mandá un audio..."
             rows={1}
-            style="
-        flex: 1; resize: none; border-radius: 0.75rem;
-        padding: 0.75rem 1rem; font-size: 0.875rem;
-        border: 1px solid var(--border); background: var(--secondary);
-        color: var(--foreground); outline: none; font-family: inherit;
-      "
-    ></textarea>
+            class="flex-1 resize-none rounded-xl border border-border bg-secondary px-4 py-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/40"
+        ></textarea>
 
         <button
-                onclick={toggleGrabacion}
-                style="
-        width: 2.75rem; height: 2.75rem; border-radius: 50%;
-        border: none; cursor: pointer; font-size: 1.1rem; flex-shrink: 0;
-        background: {isRecording ? '#ef4444' : 'var(--secondary)'};
-      "
-        >{isRecording ? '⏹' : '🎙️'}</button>
+            onclick={toggleGrabacion}
+            aria-label={isRecording ? 'Detener grabación' : 'Grabar audio'}
+            class="flex size-11 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 {isRecording
+                ? 'bg-destructive text-destructive-foreground animate-pulse'
+                : 'bg-secondary text-foreground hover:bg-muted'}"
+        >
+            {#if isRecording}
+                <Square class="size-5" />
+            {:else}
+                <Mic class="size-5" />
+            {/if}
+        </button>
 
         <button
-                onclick={enviarMensaje}
-                disabled={!inputText.trim()}
-                style="
-        width: 2.75rem; height: 2.75rem; border-radius: 50%;
-        border: none; cursor: pointer; font-size: 1.1rem;
-        background: var(--primary); color: var(--primary-foreground); flex-shrink: 0;
-        opacity: {inputText.trim() ? '1' : '0.4'};
-      "
-        >↑</button>
+            onclick={enviarMensaje}
+            disabled={!inputText.trim()}
+            aria-label="Enviar mensaje"
+            class="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:active:scale-100"
+        >
+            <ArrowUp class="size-5" />
+        </button>
     </div>
 </div>

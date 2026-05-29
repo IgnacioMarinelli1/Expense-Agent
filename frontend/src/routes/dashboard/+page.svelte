@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { api } from '$lib/api/client'
+    import { Receipt, Clock, ListChecks, PieChart, CalendarDays } from '@lucide/svelte'
 
     let total = $state(0)
     let pagado = $state(0)
@@ -33,57 +34,57 @@
     }
 </script>
 
-<div style="
-  padding: 1rem;
-  display: flex;
-  flex-direction: column;
-  gap: 1rem;
-  overflow-y: auto;
-  max-height: calc(100vh - 120px);
-">
-    <h1 style="font-size: 1.1rem; font-weight: 600; margin: 0; text-transform: capitalize;">
+<div class="flex max-h-[calc(100vh-120px)] flex-col gap-4 overflow-y-auto p-4">
+    <h1 class="text-lg font-semibold capitalize">
         Resumen {mesLabel}
     </h1>
 
     {#if cargando}
-        <div style="text-align: center; padding: 2rem; color: var(--muted-foreground);">
+        <div class="py-8 text-center text-sm text-muted-foreground">
             Cargando resumen...
         </div>
     {:else if error}
-        <div style="text-align: center; padding: 2rem; color: #ef4444; font-size: 0.875rem;">
+        <div class="py-8 text-center text-sm text-destructive">
             {error}
         </div>
     {:else}
         <!-- Tarjetas -->
-        <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 0.75rem;">
-            <div style="border-radius: 0.75rem; padding: 0.875rem; border: 1px solid var(--border); background: var(--card);">
-                <p style="font-size: 0.7rem; color: var(--muted-foreground); margin: 0 0 0.25rem;">Gastado</p>
-                <p style="font-weight: 600; font-size: 0.875rem; margin: 0;">{fmt(pagado)}</p>
+        <div class="grid grid-cols-3 gap-3">
+            <div class="rounded-xl border border-border bg-card p-3.5 shadow-sm transition-colors hover:border-foreground/20">
+                <div class="mb-1 flex items-center gap-1 text-muted-foreground">
+                    <Receipt class="size-3.5" />
+                    <p class="text-[0.7rem]">Gastado</p>
+                </div>
+                <p class="text-sm font-semibold">{fmt(pagado)}</p>
             </div>
-            <div style="border-radius: 0.75rem; padding: 0.875rem; border: 1px solid var(--border); background: var(--card);">
-                <p style="font-size: 0.7rem; color: var(--muted-foreground); margin: 0 0 0.25rem;">Pendiente</p>
-                <p style="font-weight: 600; font-size: 0.875rem; margin: 0;">{fmt(pendiente)}</p>
+            <div class="rounded-xl border border-border bg-card p-3.5 shadow-sm transition-colors hover:border-foreground/20">
+                <div class="mb-1 flex items-center gap-1 text-muted-foreground">
+                    <Clock class="size-3.5" />
+                    <p class="text-[0.7rem]">Pendiente</p>
+                </div>
+                <p class="text-sm font-semibold">{fmt(pendiente)}</p>
             </div>
-            <div style="border-radius: 0.75rem; padding: 0.875rem; border: 1px solid var(--border); background: var(--card);">
-                <p style="font-size: 0.7rem; color: var(--muted-foreground); margin: 0 0 0.25rem;">Pagos</p>
-                <p style="font-weight: 600; font-size: 0.875rem; margin: 0;">{cantidad_pagos} / {cantidad_pagos + cantidad_pendientes}</p>
+            <div class="rounded-xl border border-border bg-card p-3.5 shadow-sm transition-colors hover:border-foreground/20">
+                <div class="mb-1 flex items-center gap-1 text-muted-foreground">
+                    <ListChecks class="size-3.5" />
+                    <p class="text-[0.7rem]">Pagos</p>
+                </div>
+                <p class="text-sm font-semibold">{cantidad_pagos} / {cantidad_pagos + cantidad_pendientes}</p>
             </div>
         </div>
 
         <!-- Total -->
         {#if total > 0}
-            <div style="
-            border-radius: 0.75rem; padding: 1.25rem;
-            background: var(--primary); color: var(--primary-foreground);
-            display: flex; justify-content: space-between; align-items: center;
-          ">
+            <div
+                class="flex items-center justify-between rounded-xl bg-primary px-5 py-5 text-primary-foreground shadow-sm"
+            >
                 <div>
-                    <p style="font-size: 0.75rem; opacity: 0.8; margin: 0 0 0.25rem;">Total del mes</p>
-                    <p style="font-size: 1.5rem; font-weight: 600; margin: 0;">{fmt(total)}</p>
+                    <p class="mb-1 text-xs opacity-80">Total del mes</p>
+                    <p class="text-2xl font-semibold">{fmt(total)}</p>
                 </div>
-                <div style="text-align: right;">
-                    <p style="font-size: 0.75rem; opacity: 0.8; margin: 0 0 0.25rem;">Pagado</p>
-                    <p style="font-size: 1rem; font-weight: 600; margin: 0;">
+                <div class="text-right">
+                    <p class="mb-1 text-xs opacity-80">Pagado</p>
+                    <p class="text-base font-semibold">
                         {total > 0 ? Math.round(pagado / total * 100) : 0}%
                     </p>
                 </div>
@@ -92,23 +93,19 @@
     {/if}
 
     <!-- Placeholders Sprint 3 -->
-    <div style="
-    border-radius: 0.75rem; border: 1px solid var(--border); background: var(--card);
-    height: 200px; display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 0.5rem;
-  ">
-        <span style="font-size: 2rem;">📊</span>
-        <p style="font-size: 0.875rem; color: var(--muted-foreground); margin: 0;">Gráfico por categoría</p>
-        <p style="font-size: 0.75rem; color: var(--muted-foreground); margin: 0;">Disponible en Sprint 3</p>
+    <div
+        class="flex h-[200px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card text-muted-foreground"
+    >
+        <PieChart class="size-8" />
+        <p class="text-sm">Gráfico por categoría</p>
+        <p class="text-xs">Disponible en Sprint 3</p>
     </div>
 
-    <div style="
-    border-radius: 0.75rem; border: 1px solid var(--border); background: var(--card);
-    height: 160px; display: flex; align-items: center; justify-content: center;
-    flex-direction: column; gap: 0.5rem;
-  ">
-        <span style="font-size: 2rem;">📅</span>
-        <p style="font-size: 0.875rem; color: var(--muted-foreground); margin: 0;">Calendario de vencimientos</p>
-        <p style="font-size: 0.75rem; color: var(--muted-foreground); margin: 0;">Disponible en Sprint 3</p>
+    <div
+        class="flex h-[160px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-border bg-card text-muted-foreground"
+    >
+        <CalendarDays class="size-8" />
+        <p class="text-sm">Calendario de vencimientos</p>
+        <p class="text-xs">Disponible en Sprint 3</p>
     </div>
 </div>
