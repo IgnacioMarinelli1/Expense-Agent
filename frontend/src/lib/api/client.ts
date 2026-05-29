@@ -59,7 +59,7 @@ export const api = {
     // Enviar audio al agente
     async enviarAudio(blob: Blob) {
         const form = new FormData()
-        form.append('audio', blob, 'grabacion.webm')
+        form.append('audio', blob, 'grabacion.wav')
 
         const res = await fetch(`${BASE_URL}/agente/audio`, {
             method: 'POST',

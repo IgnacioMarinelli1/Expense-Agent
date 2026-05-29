@@ -1,6 +1,7 @@
 import os
 import sys
 from datetime import datetime
+from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db.db import get_db
@@ -18,6 +19,7 @@ async def save_expense(
     period: str = None,
     status: str = "pending",
     input_method: str = "manual",
+    service_id: str = None,
     property_id: str = None,
 ) -> dict:
     """Guarda un gasto en la base de datos. Requerido: amount."""
@@ -36,10 +38,96 @@ async def save_expense(
     if due_date:    doc["due_date"] = datetime.fromisoformat(due_date)
     if notes:       doc["notes"] = notes
     if period:      doc["period"] = period
+    if service_id:  doc["service_id"] = service_id
     if property_id: doc["property_id"] = property_id
 
     result = await db["payments"].insert_one(doc)
     return {"status": "success", "payment_id": str(result.inserted_id)}
+
+
+async def save_service(
+    name: str,
+    category: str,
+    provider: str = None,
+    recurring_amount: float = None,
+    currency: str = "ARS",
+    billing_frequency: str = "monthly",
+    default_due_day: int = None,
+    property_id: str = None,
+    account_number: str = None,
+    notes: str = None,
+    active: bool = True,
+) -> dict:
+    """Crea o actualiza un servicio recurrente/suscripción. Usar para obligaciones periódicas, no para gastos únicos."""
+    if not name or not name.strip():
+        return {"status": "error", "error_message": "El nombre del servicio es requerido"}
+    if not category or not category.strip():
+        return {"status": "error", "error_message": "La categoría del servicio es requerida"}
+
+    db = get_db()
+    normalized_name = name.strip().lower()
+    now = datetime.utcnow()
+    doc: dict[str, Any] = {
+        "user_id": _USER_ID,
+        "name": name.strip(),
+        "normalized_name": normalized_name,
+        "category": category.strip().lower(),
+        "provider": provider.strip() if provider else name.strip(),
+        "billing_frequency": billing_frequency,
+        "currency": currency,
+        "active": active,
+        "updated_at": now,
+    }
+    metadata: dict[str, Any] = {}
+    if recurring_amount is not None:
+        if recurring_amount <= 0:
+            return {"status": "error", "error_message": "El monto recurrente debe ser mayor a 0"}
+        metadata["recurring_amount"] = recurring_amount
+    if notes:
+        metadata["notes"] = notes
+    if metadata:
+        doc["metadata"] = metadata
+    if default_due_day:
+        doc["default_due_day"] = default_due_day
+    if property_id:
+        doc["property_id"] = property_id
+    if account_number:
+        doc["account_number"] = account_number
+
+    result = await db["services"].update_one(
+        {"user_id": _USER_ID, "normalized_name": normalized_name},
+        {"$set": doc, "$setOnInsert": {"created_at": now}},
+        upsert=True,
+    )
+    saved = await db["services"].find_one({"user_id": _USER_ID, "normalized_name": normalized_name})
+    return {
+        "status": "success",
+        "service_id": str(saved["_id"]),
+        "created": bool(result.upserted_id),
+    }
+
+
+async def consultar_servicios(
+    category: str = None,
+    active: bool = True,
+    limit: int = 20,
+) -> dict:
+    """Lista servicios recurrentes/suscripciones del usuario. Filtros opcionales: category y active."""
+    db = get_db()
+    query: dict[str, Any] = {"user_id": _USER_ID}
+    if category:
+        query["category"] = category.strip().lower()
+    if active is not None:
+        query["active"] = active
+
+    cursor = db["services"].find(query).sort("name", 1).limit(limit)
+    docs = await cursor.to_list(length=limit)
+    for doc in docs:
+        doc["_id"] = str(doc["_id"])
+        for key in ("created_at", "updated_at"):
+            if key in doc and hasattr(doc[key], "isoformat"):
+                doc[key] = doc[key].isoformat()
+    return {"status": "success", "servicios": docs, "count": len(docs)}
 
 
 async def consultar_gastos(
