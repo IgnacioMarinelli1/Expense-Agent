@@ -38,9 +38,9 @@
 	})
 </script>
 
-<div class="min-h-screen bg-muted/30">
+<div class="bg-muted/30">
 <div
-	class="mx-auto flex min-h-screen w-full max-w-lg flex-col bg-background text-foreground shadow-sm transition-colors duration-300 sm:border-x sm:border-border"
+	class="mx-auto flex h-[100dvh] w-full flex-col bg-background text-foreground shadow-sm transition-colors duration-300 sm:border-x sm:border-border"
 >
 
 	<header

@@ -1,9 +1,0 @@
-[mcp_servers.mongodb]
-command = "npx"
-args = [
-    "-y",
-    "mongodb-mcp-server",
-]
-
-[mcp_servers.mongodb.env]
-MONGODB_URI = "mongodb+srv://gimenezzmaximiliano_db_user:MdYN9Jl3HpJfDexa@expenses.4v7pyd3.mongodb.net/?appName=expenses"

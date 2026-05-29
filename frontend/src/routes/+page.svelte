@@ -1,12 +1,14 @@
 <script lang="ts">
-    import { mensajes, cargando } from '$lib/stores/gastos'
+    import { mensajes } from '$lib/stores/gastos'
     import { api } from '$lib/api/client'
-    import { Bot, Mic, Square, ArrowUp } from '@lucide/svelte'
+    import { Bot, Mic, Square, ArrowUp, Camera } from '@lucide/svelte'
 
     let inputText = $state('')
     let isRecording = $state(false)
+    let isStreaming = $state(false)
     let mediaRecorder: MediaRecorder | null = null
     let chunks: Blob[] = []
+    let fileInput: HTMLInputElement | undefined = $state()
 
     function encodeWav(audioBuffer: AudioBuffer) {
         const channels = audioBuffer.numberOfChannels
@@ -66,8 +68,58 @@
         }
     }
 
+    function addAgentStreamMessage() {
+        const id = Date.now() + 1
+        mensajes.update(m => [...m, { id, tipo: 'agente', texto: '', cargando: true }])
+        return id
+    }
+
+    function updateAgentMessage(id: number, texto: string, cargando = false) {
+        mensajes.update(m =>
+            m.map(msg => msg.id === id
+                ? { ...msg, texto, cargando }
+                : msg
+            )
+        )
+    }
+
+    async function streamIntoMessage(
+        id: number,
+        startStream: (handlers: {
+            onToken: (token: string) => void
+            onError: (message: string) => void
+        }) => Promise<void>,
+        fallback: string
+    ) {
+        isStreaming = true
+        let responseText = ''
+        try {
+            await startStream({
+                onToken: token => {
+                    responseText += token
+                    updateAgentMessage(id, responseText, true)
+                },
+                onError: message => {
+                    responseText = responseText ? `${responseText}\n\n${message}` : message
+                    updateAgentMessage(id, responseText, false)
+                }
+            })
+            mensajes.update(m =>
+                m.map(msg => msg.id === id
+                    ? { ...msg, texto: msg.texto || 'No pude procesar tu mensaje.', cargando: false }
+                    : msg
+                )
+            )
+        } catch (e) {
+            console.error(e)
+            updateAgentMessage(id, fallback, false)
+        } finally {
+            isStreaming = false
+        }
+    }
+
     async function enviarMensaje() {
-        if (!inputText.trim()) return
+        if (!inputText.trim() || isStreaming) return
 
         const texto = inputText
         inputText = ''
@@ -75,26 +127,12 @@
         // Agregar mensaje del usuario
         mensajes.update(m => [...m, { id: Date.now(), tipo: 'usuario', texto }])
 
-        // Agregar burbuja de "escribiendo..."
-        const idCargando = Date.now() + 1
-        mensajes.update(m => [...m, { id: idCargando, tipo: 'agente', texto: '...', cargando: true }])
-
-        try {
-            const res = await api.enviarMensaje(texto)
-            mensajes.update(m =>
-                m.map(msg => msg.id === idCargando
-                    ? { ...msg, texto: res.respuesta, cargando: false }
-                    : msg
-                )
-            )
-        } catch {
-            mensajes.update(m =>
-                m.map(msg => msg.id === idCargando
-                    ? { ...msg, texto: 'Hubo un error al conectar con el agente. ¿El backend está corriendo?', cargando: false }
-                    : msg
-                )
-            )
-        }
+        const idCargando = addAgentStreamMessage()
+        await streamIntoMessage(
+            idCargando,
+            handlers => api.streamMensaje(texto, handlers),
+            'Hubo un error al conectar con el agente. ¿El backend está corriendo?'
+        )
     }
 
     async function toggleGrabacion() {
@@ -113,26 +151,18 @@
 
             mediaRecorder.onstop = async () => {
                 mensajes.update(m => [...m, { id: Date.now(), tipo: 'usuario', texto: '🎙️ Audio enviado' }])
-                const idCargando = Date.now() + 1
-                mensajes.update(m => [...m, { id: idCargando, tipo: 'agente', texto: '...', cargando: true }])
+                const idCargando = addAgentStreamMessage()
                 try {
                     const grabacion = new Blob(chunks, { type: mediaRecorder?.mimeType || 'audio/webm' })
                     const wav = await convertirAWav(grabacion)
-                    const res = await api.enviarAudio(wav)
-                    mensajes.update(m =>
-                        m.map(msg => msg.id === idCargando
-                            ? { ...msg, texto: res.respuesta, cargando: false }
-                            : msg
-                        )
+                    await streamIntoMessage(
+                        idCargando,
+                        handlers => api.streamAudio(wav, handlers),
+                        'No pude procesar el audio.'
                     )
                 } catch (e) {
                     console.error(e)
-                    mensajes.update(m =>
-                        m.map(msg => msg.id === idCargando
-                            ? { ...msg, texto: 'No pude procesar el audio.', cargando: false }
-                            : msg
-                        )
-                    )
+                    updateAgentMessage(idCargando, 'No pude procesar el audio.', false)
                 }
                 stream.getTracks().forEach(t => t.stop())
             }
@@ -150,9 +180,28 @@
             enviarMensaje()
         }
     }
+
+    async function handleImageUpload(e: Event) {
+        const input = e.target as HTMLInputElement
+        if (!input.files?.length || isStreaming) return
+        
+        const file = input.files[0]
+        input.value = '' // reset
+        
+        const fileUrl = URL.createObjectURL(file)
+        const fileType = file.type === 'application/pdf' ? 'pdf' : 'image'
+        
+        mensajes.update(m => [...m, { id: Date.now(), tipo: 'usuario', texto: '', fileUrl, fileType }])
+        const idCargando = addAgentStreamMessage()
+        await streamIntoMessage(
+            idCargando,
+            handlers => api.streamImagen(file, handlers),
+            'No pude procesar la imagen.'
+        )
+    }
 </script>
 
-<div class="flex h-[calc(100vh-120px)] flex-col">
+<div class="mx-auto flex h-full w-full flex-col">
 
     <div class="flex flex-1 flex-col gap-3 overflow-y-auto p-4">
         {#each $mensajes as mensaje (mensaje.id)}
@@ -173,12 +222,27 @@
                         ? 'rounded-2xl rounded-br-sm bg-primary text-primary-foreground'
                         : 'rounded-2xl rounded-bl-sm bg-secondary text-foreground'}"
                 >
-                    {#if mensaje.cargando}
+                    {#if mensaje.cargando && !mensaje.texto}
                         <span class="flex items-center gap-1 py-1" aria-label="Escribiendo">
                             <span class="size-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.3s]"></span>
                             <span class="size-1.5 animate-bounce rounded-full bg-current opacity-60 [animation-delay:-0.15s]"></span>
                             <span class="size-1.5 animate-bounce rounded-full bg-current opacity-60"></span>
                         </span>
+                    {:else if mensaje.fileUrl}
+                        <div class="flex flex-col gap-2">
+                            {#if mensaje.fileType === 'pdf'}
+                                <div class="flex items-center gap-2 pb-1 border-b border-primary/20">
+                                    <span class="text-xl">📄</span>
+                                    <span class="font-medium">Documento PDF</span>
+                                </div>
+                                <embed src={mensaje.fileUrl} type="application/pdf" class="h-[300px] w-full min-w-[200px] sm:h-[400px] sm:w-[350px] rounded-md bg-white object-cover shadow-inner" />
+                            {:else}
+                                <img src={mensaje.fileUrl} alt="Preview" class="max-h-[300px] max-w-full sm:max-h-[400px] sm:max-w-[350px] rounded-md object-contain shadow-inner" />
+                            {/if}
+                            {#if mensaje.texto}
+                                <span>{mensaje.texto}</span>
+                            {/if}
+                        </div>
                     {:else}
                         {mensaje.texto}
                     {/if}
@@ -188,16 +252,35 @@
     </div>
 
     <div class="flex items-end gap-2 border-t border-border bg-card p-4">
+        <input 
+            type="file" 
+            accept="image/*,application/pdf" 
+            capture="environment" 
+            hidden 
+            bind:this={fileInput}
+            onchange={handleImageUpload}
+        />
+        <button
+            onclick={() => fileInput?.click()}
+            disabled={isStreaming}
+            aria-label="Subir imagen"
+            class="flex size-11 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 bg-secondary text-foreground hover:bg-muted disabled:opacity-40 disabled:active:scale-100"
+        >
+            <Camera class="size-5" />
+        </button>
+
         <textarea
             bind:value={inputText}
             onkeydown={handleKeydown}
             placeholder="Escribí un pago o mandá un audio..."
             rows={1}
+            disabled={isStreaming}
             class="flex-1 resize-none rounded-xl border border-border bg-secondary px-4 py-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/40"
         ></textarea>
 
         <button
             onclick={toggleGrabacion}
+            disabled={isStreaming && !isRecording}
             aria-label={isRecording ? 'Detener grabación' : 'Grabar audio'}
             class="flex size-11 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 {isRecording
                 ? 'bg-destructive text-destructive-foreground animate-pulse'
@@ -212,7 +295,7 @@
 
         <button
             onclick={enviarMensaje}
-            disabled={!inputText.trim()}
+            disabled={!inputText.trim() || isStreaming}
             aria-label="Enviar mensaje"
             class="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:active:scale-100"
         >
