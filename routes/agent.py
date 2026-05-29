@@ -45,6 +45,22 @@ _runner = Runner(
 SESSION_ID = "demo_session"
 USER_ID = "demo_user"
 
+_SUBAGENT_LABELS: dict[str, dict[str, str]] = {
+    "agente_diagnostico": {
+        "running": "Generando diagnóstico financiero...",
+        "done": "Diagnóstico listo",
+    },
+    "agente_inflacion": {
+        "running": "Consultando índices del INDEC...",
+        "done": "Ajuste por inflación calculado",
+    },
+    "agente_cuotas": {
+        "running": "Analizando compromisos y cuotas...",
+        "done": "Cuotas analizadas",
+    },
+}
+_SUBAGENT_NAMES = set(_SUBAGENT_LABELS.keys())
+
 
 class MessageRequest(BaseModel):
     text: str
@@ -72,6 +88,12 @@ def _event_text(event) -> str:
 
 def _sse(event: str, data: dict) -> str:
     return f"event: {event}\ndata: {json.dumps(data, ensure_ascii=False)}\n\n"
+
+
+def _thinking_sse(agent_name: str, status: str) -> str:
+    labels = _SUBAGENT_LABELS.get(agent_name, {})
+    label = labels.get(status, agent_name)
+    return _sse("thinking", {"agent": agent_name, "status": status, "label": label})
 
 
 def _agent_error_message(exc: Exception, modality_label: str) -> str | None:
@@ -143,6 +165,9 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
                 # False (because FC present), so without this branch the text would go
                 # to the delta path and be emitted again (duplicate). The text was
                 # already streamed via partial delta events — skip it.
+                for fc in event.get_function_calls():
+                    if fc.name in _SUBAGENT_NAMES:
+                        yield _thinking_sse(fc.name, "running")
                 turn_boundary_pending = True
             elif text:
                 if event.is_final_response():
@@ -162,6 +187,10 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
                         turn_boundary_pending = False
                     total_streamed += text
                     yield _sse("token", {"text": text})
+
+            for fr in event.get_function_responses():
+                if fr.name in _SUBAGENT_NAMES:
+                    yield _thinking_sse(fr.name, "done")
 
             if event.error_message:
                 yield _sse("error", {"message": event.error_message})

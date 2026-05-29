@@ -3,6 +3,7 @@ from datetime import datetime
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
 from google.adk.features import FeatureName, override_feature_enabled
+from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
 from mcp import StdioServerParameters
@@ -16,6 +17,7 @@ from .tools import (
     get_services,
     get_monthly_summary,
 )
+from .subagents import agente_diagnostico
 
 load_dotenv()
 
@@ -104,6 +106,17 @@ Calculates summary for a YYYY-MM period. Use it for "how much did I spend this m
 You also have direct MongoDB access via MCP tools. The database is `expense_agent_db`, collections: `payments`, `services`, `users`, `properties`.
 Use these for complex queries that the tools above can't handle: cross-collection queries, custom aggregations, or when the user asks for raw data.
 Prefer the high-level tools above for standard operations. Use MCP only when needed.
+
+## agente_diagnostico (sub-agente especializado)
+You have access to a specialized diagnostic agent. Delegate to it for complex financial analysis.
+Invoke `agente_diagnostico` when the user asks for:
+- Monthly or period financial summaries with real-terms analysis ("¿cómo me fue este mes?", "resumen de mayo")
+- Inflation-adjusted expense analysis ("¿cuánto gasté en términos reales?", "ajustado por inflación")
+- Installment/subscription burden analysis ("¿cuánto pago en cuotas?", "mis compromisos mensuales")
+- Overall financial health diagnosis ("diagnóstico", "salud financiera", "análisis de gastos")
+
+Do NOT invoke `agente_diagnostico` for simple operations like recording a payment, listing expenses, or basic queries.
+Handle those yourself directly.
 
 # Decision Tree before calling tools
 Before acting, internally classify the message:
@@ -234,5 +247,6 @@ root_agent = LlmAgent(
                 )
             )
         ),
+        AgentTool(agent=agente_diagnostico),
     ],
 )

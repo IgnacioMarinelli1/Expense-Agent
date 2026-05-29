@@ -11,6 +11,14 @@ export type Expense = {
     notes?: string
 }
 
+export type TraceStatus = 'running' | 'done' | 'error'
+
+export type TraceStep = {
+    agent: string
+    label: string
+    status: TraceStatus
+}
+
 export type Message = {
     id: number
     type: 'usuario' | 'agente'
@@ -18,6 +26,7 @@ export type Message = {
     loading?: boolean
     fileUrl?: string
     fileType?: 'image' | 'pdf'
+    traces?: TraceStep[]
 }
 
 // Store de gastos

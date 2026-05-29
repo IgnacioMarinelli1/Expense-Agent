@@ -5,6 +5,7 @@ type StreamHandlers = {
     onToken: (text: string) => void
     onError?: (message: string) => void
     onDone?: () => void
+    onThinking?: (agent: string, status: string, label: string) => void
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -45,6 +46,7 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
         if (event === 'token') handlers.onToken(data.text ?? '')
         if (event === 'error') handlers.onError?.(data.message ?? 'No pude procesar tu mensaje.')
         if (event === 'done') handlers.onDone?.()
+        if (event === 'thinking') handlers.onThinking?.(data.agent, data.status, data.label)
     }
 
     while (true) {

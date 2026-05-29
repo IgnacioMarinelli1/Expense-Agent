@@ -1,8 +1,9 @@
 <script lang="ts">
-    import { messages } from "$lib/stores/expenses";
+    import { messages, type TraceStep } from "$lib/stores/expenses";
     import { api } from "$lib/api/client";
     import { Bot, Mic, Square, ArrowUp, Camera } from "@lucide/svelte";
     import { marked } from "marked";
+    import ThinkingSteps from "$lib/components/ThinkingSteps.svelte";
 
     const tokenStartTimes = new Map<string, number>();
     const messageLastStartTime = new Map<string, number>();
@@ -167,7 +168,7 @@
         const id = Date.now() + 1;
         messages.update((m) => [
             ...m,
-            { id, type: "agente", text: "", loading: true },
+            { id, type: "agente", text: "", loading: true, traces: [] },
         ]);
         return id;
     }
@@ -178,11 +179,25 @@
         );
     }
 
+    function upsertTrace(id: number, agent: string, status: string, label: string) {
+        messages.update((m) =>
+            m.map((msg) => {
+                if (msg.id !== id) return msg;
+                const existing = (msg.traces ?? []).filter((t) => t.agent !== agent);
+                return {
+                    ...msg,
+                    traces: [...existing, { agent, status: status as TraceStep["status"], label }],
+                };
+            }),
+        );
+    }
+
     async function streamIntoMessage(
         id: number,
         startStream: (handlers: {
             onToken: (token: string) => void;
             onError: (message: string) => void;
+            onThinking: (agent: string, status: string, label: string) => void;
         }) => Promise<void>,
         fallback: string,
     ) {
@@ -199,6 +214,9 @@
                         ? `${responseText}\n\n${message}`
                         : message;
                     updateAgentMessage(id, responseText, false);
+                },
+                onThinking: (agent, status, label) => {
+                    upsertTrace(id, agent, status, label);
                 },
             });
             messages.update((m) =>
@@ -235,7 +253,11 @@
         const loadingId = addAgentStreamMessage();
         await streamIntoMessage(
             loadingId,
-            (handlers) => api.streamMessage(text, handlers),
+            (handlers) => api.streamMessage(text, {
+                onToken: handlers.onToken,
+                onError: handlers.onError,
+                onThinking: handlers.onThinking,
+            }),
             "Hubo un error al conectar con el agente. ¿El backend está corriendo?",
         );
     }
@@ -273,7 +295,11 @@
                     const wav = await convertToWav(grabacion);
                     await streamIntoMessage(
                         loadingId,
-                        (handlers) => api.streamAudio(wav, handlers),
+                        (handlers) => api.streamAudio(wav, {
+                            onToken: handlers.onToken,
+                            onError: handlers.onError,
+                            onThinking: handlers.onThinking,
+                        }),
                         "No pude procesar el audio.",
                     );
                 } catch (e) {
@@ -318,7 +344,11 @@
         const loadingId = addAgentStreamMessage();
         await streamIntoMessage(
             loadingId,
-            (handlers) => api.streamImage(file, handlers),
+            (handlers) => api.streamImage(file, {
+                onToken: handlers.onToken,
+                onError: handlers.onError,
+                onThinking: handlers.onThinking,
+            }),
             "No pude procesar la imagen.",
         );
     }
@@ -376,6 +406,10 @@
                     <div
                         class="assistant-copy relative text-[15px] leading-relaxed text-foreground/90"
                     >
+                        {#if message.traces && message.traces.length > 0}
+                            <ThinkingSteps traces={message.traces} loading={!!message.loading} />
+                        {/if}
+
                         {#if message.loading && !message.text}
                             <span
                                 class="flex items-center gap-1 py-1"
@@ -391,7 +425,7 @@
                                     class="size-1.5 animate-bounce rounded-full bg-current opacity-60"
                                 ></span>
                             </span>
-                        {:else}
+                        {:else if message.text}
                             <div class="markdown-body">
                                 {@html parseAndAnimate(message)}
                             </div>
