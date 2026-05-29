@@ -74,7 +74,7 @@ Important fields:
 - due_date: due date if it appears.
 - period: accounting period in YYYY-MM format. Infer it from payment_date/due_date or the mentioned month.
 - status: "paid" if already paid/spent; "pending" if still needs to be paid; "overdue" if past due.
-- notes: brief human description.
+- notes: brief human description. ALWAYS include this — it's what appears in the expense list UI.
 - service_id: if this payment corresponds to a saved service, pass the service id.
 - input_method: "manual" unless context indicates another channel.
 

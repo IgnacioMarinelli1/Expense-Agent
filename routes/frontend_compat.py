@@ -49,7 +49,17 @@ def _category(expense_type: str) -> str:
 
 
 def _to_expense(doc: dict) -> dict:
-    expense_type = doc.get("notes") or "Gasto"
+    metadata_notes = (doc.get("metadata") or {}).get("notas")
+    notes_field = doc.get("notes")
+
+    if notes_field:
+        expense_type = notes_field
+    elif metadata_notes:
+        expense_type = metadata_notes
+    else:
+        currency = doc.get("currency", "ARS")
+        expense_type = f"Gasto {currency}" if currency != "ARS" else "Gasto sin descripción"
+
     return {
         "id": str(doc["_id"]),
         "type": expense_type,
@@ -58,7 +68,7 @@ def _to_expense(doc: dict) -> dict:
         "date": _fmt(doc.get("payment_date")),
         "due_date": _fmt(doc.get("due_date")),
         "paid": doc.get("status") == "paid",
-        "notes": (doc.get("metadata") or {}).get("notas"),
+        "notes": metadata_notes if metadata_notes != expense_type else None,
     }
 
 
