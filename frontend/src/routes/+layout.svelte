@@ -1,70 +1,100 @@
 <script lang="ts">
 	import '../app.css'
+	import { onMount } from 'svelte'
 	import { page } from '$app/stores'
+	import {
+		Wallet,
+		MessageCircle,
+		ReceiptText,
+		LayoutDashboard,
+		Sun,
+		Moon,
+	} from '@lucide/svelte'
 
 	const navItems = [
-		{ href: '/',          label: 'Chat',      icon: '💬' },
-		{ href: '/gastos',    label: 'Gastos',    icon: '📋' },
-		{ href: '/dashboard', label: 'Dashboard', icon: '📊' },
+		{ href: '/',          label: 'Chat',      icon: MessageCircle },
+		{ href: '/gastos',    label: 'Gastos',    icon: ReceiptText },
+		{ href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
 	]
+
+	let dark = $state(false)
+
+	function applyTheme() {
+		document.documentElement.classList.toggle('dark', dark)
+	}
+
+	function toggleTheme() {
+		dark = !dark
+		applyTheme()
+		localStorage.setItem('theme', dark ? 'dark' : 'light')
+	}
+
+	onMount(() => {
+		const stored = localStorage.getItem('theme')
+		dark = stored
+			? stored === 'dark'
+			: window.matchMedia('(prefers-color-scheme: dark)').matches
+		applyTheme()
+	})
 </script>
 
-<div style="min-height: 100vh; display: flex; flex-direction: column;">
+<div class="bg-muted/30">
+<div
+	class="mx-auto flex h-[100dvh] w-full flex-col bg-background text-foreground shadow-sm transition-colors duration-300 sm:border-x sm:border-border"
+>
 
-	<header style="
-    border-bottom: 1px solid var(--border);
-    padding: 1rem 1.5rem;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    background: var(--card);
-  ">
-		<div style="display: flex; align-items: center; gap: 0.5rem;">
-			<span style="font-size: 1.25rem;">💸</span>
-			<span style="font-weight: 600; font-size: 1.1rem;">Al Día</span>
-			<span style="
-        font-size: 0.7rem;
-        padding: 0.1rem 0.5rem;
-        border-radius: 99px;
-        background: var(--secondary);
-        color: var(--muted-foreground);
-      ">beta</span>
+	<header
+		class="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/80 px-5 py-3 backdrop-blur"
+	>
+		<div class="flex items-center gap-2">
+			<span
+				class="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground"
+			>
+				<Wallet class="size-4" />
+			</span>
+			<span class="text-base font-semibold tracking-tight">Al Día</span>
+			<span
+				class="rounded-full bg-secondary px-2 py-0.5 text-[0.65rem] font-medium text-muted-foreground"
+			>beta</span>
 		</div>
-		<span style="font-size: 0.8rem; color: var(--muted-foreground);">Mayo 2026</span>
+
+		<div class="flex items-center gap-3">
+			<span class="text-xs text-muted-foreground">Mayo 2026</span>
+			<button
+				onclick={toggleTheme}
+				aria-label="Cambiar tema"
+				title="Cambiar tema"
+				class="flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+			>
+				{#if dark}
+					<Sun class="size-4" />
+				{:else}
+					<Moon class="size-4" />
+				{/if}
+			</button>
+		</div>
 	</header>
 
-	<main style="flex: 1; overflow: hidden;">
+	<main class="flex-1 overflow-hidden">
 		<slot />
 	</main>
 
-	<nav style="border-top: 1px solid var(--border); display: flex; background: var(--card);">
+	<nav class="sticky bottom-0 flex border-t border-border bg-card/80 backdrop-blur">
 		{#each navItems as item}
 			{@const activo = $page.url.pathname === item.href}
-			<a href={item.href} class="nav-link" class:activo>
-				<span style="font-size: 1.2rem;">{item.icon}</span>
+			{@const Icon = item.icon}
+			<a
+				href={item.href}
+				class="relative flex flex-1 flex-col items-center gap-1 py-2.5 text-xs font-medium transition-colors before:absolute before:inset-x-4 before:top-0 before:h-0.5 before:rounded-full before:transition-colors {activo
+					? 'text-primary before:bg-primary'
+					: 'text-muted-foreground before:bg-transparent hover:text-foreground'}"
+				aria-current={activo ? 'page' : undefined}
+			>
+				<Icon class="size-5" />
 				{item.label}
 			</a>
 		{/each}
 	</nav>
 
 </div>
-
-<style>
-	.nav-link {
-		flex: 1;
-		display: flex;
-		flex-direction: column;
-		align-items: center;
-		gap: 0.25rem;
-		padding: 0.75rem 0;
-		font-size: 0.75rem;
-		text-decoration: none;
-		color: var(--muted-foreground);
-		font-weight: 400;
-	}
-
-	.nav-link.activo {
-		color: var(--primary);
-		font-weight: 600;
-	}
-</style>
+</div>

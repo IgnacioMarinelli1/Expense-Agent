@@ -16,6 +16,8 @@ export type Mensaje = {
     tipo: 'usuario' | 'agente'
     texto: string
     cargando?: boolean
+    fileUrl?: string
+    fileType?: 'image' | 'pdf'
 }
 
 // Store de gastos

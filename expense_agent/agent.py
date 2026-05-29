@@ -203,7 +203,7 @@ Respuesta: resumen corto con total y desglose disponible.
 """
 
 root_agent = LlmAgent(
-    model=os.getenv("EXPENSE_AGENT_MODEL", "gemini-2.5-flash"),
+    model=os.getenv("EXPENSE_AGENT_MODEL", "gemini-3-flash-preview"),
     name="expense_agent",
     instruction=INSTRUCTION,
     tools=[
