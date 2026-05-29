@@ -2,6 +2,12 @@ import os
 from datetime import datetime
 from dotenv import load_dotenv
 from google.adk.agents import LlmAgent
+from google.adk.features import FeatureName, override_feature_enabled
+from google.adk.tools.mcp_tool import MCPToolset
+from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
+from mcp import StdioServerParameters
+
+override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 from .tools import (
     save_expense,
     save_service,
@@ -94,6 +100,11 @@ Gets a payment by ID. Use it only if the user provides or asks for a specific ex
 ## get_monthly_summary
 Calculates summary for a YYYY-MM period. Use it for "how much did I spend this month", "May summary", "total pending for 2026-05".
 
+## MongoDB MCP tools (find, aggregate, list-collections, etc.)
+You also have direct MongoDB access via MCP tools. The database is `expense_agent_db`, collections: `payments`, `services`, `users`, `properties`.
+Use these for complex queries that the tools above can't handle: cross-collection queries, custom aggregations, or when the user asks for raw data.
+Prefer the high-level tools above for standard operations. Use MCP only when needed.
+
 # Decision Tree before calling tools
 Before acting, internally classify the message:
 
@@ -101,6 +112,7 @@ Before acting, internally classify the message:
    - Services/subscriptions/recurring => use get_services.
    - Expenses/payments/list => use get_expenses.
    - Totals/monthly summary => use get_monthly_summary.
+   - Complex or custom query => use MongoDB MCP tools directly.
 
 2. Does the user describe a one-off payment/expense?
    Signals: "pagué", "gasté", "compré", "aboné", "me cobraron", "se venció", "vence", "tengo que pagar".
@@ -203,7 +215,7 @@ Response: short summary with total and breakdown available.
 """
 
 root_agent = LlmAgent(
-    model=os.getenv("EXPENSE_AGENT_MODEL", "gemini-3-flash-preview"),
+    model=os.getenv("EXPENSE_AGENT_MODEL", "gemini-2.5-flash"),
     name="expense_agent",
     instruction=INSTRUCTION,
     tools=[
@@ -213,5 +225,14 @@ root_agent = LlmAgent(
         get_expense,
         get_services,
         get_monthly_summary,
+        MCPToolset(
+            connection_params=StdioConnectionParams(
+                server_params=StdioServerParameters(
+                    command="npx",
+                    args=["-y", "mongodb-mcp-server"],
+                    env={"MDB_MCP_CONNECTION_STRING": os.getenv("MONGO_URI", "")},
+                )
+            )
+        ),
     ],
 )

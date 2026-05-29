@@ -126,7 +126,8 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
     await _ensure_session()
     run_config = RunConfig(streaming_mode=StreamingMode.SSE)
     try:
-        last_text = ""
+        total_streamed = ""
+        turn_boundary_pending = False
         async for event in _runner.run_async(
             user_id=USER_ID,
             session_id=SESSION_ID,
@@ -134,11 +135,34 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
             run_config=run_config,
         ):
             text = _event_text(event)
-            if text:
-                token = text[len(last_text):] if text.startswith(last_text) else text
-                last_text = text if text.startswith(last_text) else last_text + text
-                if token:
-                    yield _sse("token", {"text": token})
+            has_fc = bool(event.get_function_calls())
+
+            if has_fc:
+                # aggregator.close() produces a non-partial event with text+FC when
+                # the agent speaks before calling a tool. is_final_response() returns
+                # False (because FC present), so without this branch the text would go
+                # to the delta path and be emitted again (duplicate). The text was
+                # already streamed via partial delta events — skip it.
+                turn_boundary_pending = True
+            elif text:
+                if event.is_final_response():
+                    if not total_streamed:
+                        total_streamed = text
+                        yield _sse("token", {"text": text})
+                    elif text.startswith(total_streamed):
+                        remainder = text[len(total_streamed):]
+                        if remainder:
+                            total_streamed += remainder
+                            yield _sse("token", {"text": remainder})
+                    turn_boundary_pending = True
+                else:
+                    if turn_boundary_pending and total_streamed:
+                        yield _sse("token", {"text": "\n\n"})
+                        total_streamed += "\n\n"
+                        turn_boundary_pending = False
+                    total_streamed += text
+                    yield _sse("token", {"text": text})
+
             if event.error_message:
                 yield _sse("error", {"message": event.error_message})
                 return

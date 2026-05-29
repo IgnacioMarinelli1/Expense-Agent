@@ -21,7 +21,14 @@ def _parse_date(date_str: str) -> Optional[datetime]:
 
 
 def _fmt(dt) -> Optional[str]:
-    return dt.strftime("%d/%m") if dt else None
+    if not dt:
+        return None
+    if isinstance(dt, str):
+        try:
+            dt = datetime.fromisoformat(dt)
+        except ValueError:
+            return None
+    return dt.strftime("%d/%m")
 
 
 def _category(expense_type: str) -> str:
