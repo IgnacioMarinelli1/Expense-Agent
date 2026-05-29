@@ -1,6 +1,6 @@
 import os
 import sys
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -22,18 +22,44 @@ async def save_expense(
     service_id: str = None,
     property_id: str = None,
 ) -> dict:
-    """Guarda un gasto en la base de datos. Requerido: amount."""
+    """Guarda un gasto en la base de datos. Requerido: amount.
+    Retorna status 'duplicate' si el pago ya existe — en ese caso NO reintentar."""
     if amount <= 0:
         return {"status": "error", "error_message": "El monto debe ser mayor a 0"}
+
     db = get_db()
+    now = datetime.utcnow()
+
+    # Dedup: build the narrowest possible query to detect an existing payment.
+    # Priority: service+period (most specific) > notes+period > notes+recent window.
+    if service_id and period:
+        dedup_q = {"user_id": _USER_ID, "service_id": service_id, "period": period}
+    elif notes and period:
+        dedup_q = {"user_id": _USER_ID, "amount": amount, "currency": currency,
+                   "notes": notes, "period": period}
+    elif notes:
+        dedup_q = {"user_id": _USER_ID, "amount": amount, "currency": currency,
+                   "notes": notes, "created_at": {"$gte": now - timedelta(minutes=10)}}
+    else:
+        dedup_q = {"user_id": _USER_ID, "amount": amount, "currency": currency,
+                   "created_at": {"$gte": now - timedelta(minutes=5)}}
+
+    existing = await db["payments"].find_one(dedup_q)
+    if existing:
+        return {
+            "status": "duplicate",
+            "payment_id": str(existing["_id"]),
+            "message": "Este pago ya existe. No se volvió a registrar.",
+        }
+
     doc = {
         "user_id": _USER_ID,
         "amount": amount,
         "currency": currency,
-        "payment_date": datetime.fromisoformat(payment_date) if payment_date else datetime.utcnow(),
+        "payment_date": datetime.fromisoformat(payment_date) if payment_date else now,
         "status": status,
         "input_method": input_method,
-        "created_at": datetime.utcnow(),
+        "created_at": now,
     }
     if due_date:    doc["due_date"] = datetime.fromisoformat(due_date)
     if notes:       doc["notes"] = notes

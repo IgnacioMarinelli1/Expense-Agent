@@ -66,6 +66,7 @@ You have these tools. Use them when appropriate; do not invent non-existent tool
 ## save_expense
 Saves a one-off expense/payment in `payments`.
 Use it when the user indicates a concrete event: paid, spent, needs to pay, due this month, charged, bought.
+If it returns `status: "duplicate"`, the payment already exists — inform the user and do NOT retry.
 Important fields:
 - amount: mandatory numeric amount.
 - currency: currency; default ARS. Interpret "dls", "usd", "dólares", "u$s" as USD.
@@ -221,14 +222,22 @@ Response: short summary with total and breakdown available.
 
 # Responses to the user
 - After saving, respond with a single clear sentence with what was registered.
+- If save_expense returns status "duplicate": tell the user the payment already exists, don't retry.
 - If you used a tool and it failed, explain the problem actionably.
 - Do not show JSON or internal IDs unless the user asks for them.
 - Do not explain your internal reasoning.
 - Be concise: normally 1 or 2 sentences.
 """
 
+def _resolve_model():
+    name = os.getenv("EXPENSE_AGENT_MODEL", "gemini-2.5-flash")
+    if name.startswith("gemini"):
+        return name
+    from google.adk.models.lite_llm import LiteLlm
+    return LiteLlm(model=name)
+
 root_agent = LlmAgent(
-    model=os.getenv("EXPENSE_AGENT_MODEL", "gemini-2.5-flash"),
+    model=_resolve_model(),
     name="expense_agent",
     instruction=INSTRUCTION,
     tools=[
