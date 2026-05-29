@@ -83,8 +83,17 @@ async def save_service(
     account_number: str = None,
     notes: str = None,
     active: bool = True,
+    total_installments: int = None,
+    current_installment: int = None,
+    start_date: str = None,
 ) -> dict:
-    """Crea o actualiza un servicio recurrente/suscripción. Usar para obligaciones periódicas, no para gastos únicos."""
+    """Crea o actualiza un servicio recurrente/suscripción. Usar para obligaciones periódicas, no para gastos únicos.
+
+    Para compras en cuotas usar:
+    - total_installments: cantidad total de cuotas (ej: 12).
+    - current_installment: número de cuota actual (ej: 3). Default 1 si no se especifica.
+    - start_date: fecha de inicio del plan en formato YYYY-MM-DD.
+    """
     if not name or not name.strip():
         return {"status": "error", "error_message": "El nombre del servicio es requerido"}
     if not category or not category.strip():
@@ -111,6 +120,12 @@ async def save_service(
         metadata["recurring_amount"] = recurring_amount
     if notes:
         metadata["notes"] = notes
+    if total_installments is not None:
+        metadata["total_installments"] = total_installments
+        metadata["current_installment"] = current_installment or 1
+        metadata["remaining_installments"] = total_installments - (current_installment or 1)
+        if start_date:
+            metadata["start_date"] = start_date
     if metadata:
         doc["metadata"] = metadata
     if default_due_day:
@@ -126,11 +141,15 @@ async def save_service(
         upsert=True,
     )
     saved = await db["services"].find_one({"user_id": _USER_ID, "normalized_name": normalized_name})
-    return {
+    response = {
         "status": "success",
         "service_id": str(saved["_id"]),
         "created": bool(result.upserted_id),
     }
+    if total_installments:
+        remaining = total_installments - (current_installment or 1)
+        response["installments_info"] = f"Cuota {current_installment or 1} de {total_installments} — quedan {remaining}"
+    return response
 
 
 async def get_services(

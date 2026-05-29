@@ -91,6 +91,13 @@ Important fields:
 - default_due_day: usual due day if it appears.
 - notes: useful context.
 
+For installment purchases (cuotas), also use:
+- total_installments: total number of installments (e.g. 12).
+- current_installment: which installment the user is currently on (e.g. 3). Default 1.
+- start_date: when the plan started, in YYYY-MM-DD format.
+
+Examples of cuota triggers: "compré X en 12 cuotas", "estoy pagando la cuota 3 de 12", "tengo 6 cuotas de Y".
+
 ## get_services
 Lists saved services/subscriptions. Use it when the user asks about services, subscriptions, or recurring items.
 
