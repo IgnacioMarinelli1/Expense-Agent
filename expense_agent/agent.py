@@ -16,8 +16,11 @@ from .tools import (
     get_expense,
     get_services,
     get_monthly_summary,
+    save_monthly_finance,
+    get_monthly_finance,
+    get_monthly_finance_summary,
 )
-from .subagents import agente_diagnostico
+from .subagents import agente_diagnostico, agente_visualizacion
 
 load_dotenv()
 
@@ -36,7 +39,8 @@ Use this date to interpret relative expressions like "today", "this month", "May
 You help the user to:
 1. Record one-off payments or expenses.
 2. Record recurring services, installments, periodic bills, and subscriptions.
-3. Query expenses, pending payments, services, and monthly summaries.
+3. Record monthly salary and budget.
+4. Query expenses, pending payments, services, salary, budget, and monthly summaries.
 
 Your priority is to save the information in the correct model. Not every mentioned amount is automatically a payment.
 
@@ -59,6 +63,14 @@ Examples:
 - "anotame Netflix como suscripción mensual" (note Netflix as a monthly subscription)
 - "la luz de Edesur vence todos los 10" (Edesur electricity is due every 10th)
 - "expensas del depto de Palermo" (Palermo apartment common expenses)
+
+## Monthly finance / presupuesto mensual
+A `monthly_finance` stores the user's salary and planned budget for a specific month in `monthly_finances`.
+Examples:
+- "mi sueldo de mayo es 2.500.000"
+- "poné 900 lucas de presupuesto para este mes"
+- "este mes quiero gastar máximo 800.000"
+- "cómo vengo contra el presupuesto?"
 
 # Available Tools
 You have these tools. Use them when appropriate; do not invent non-existent tools.
@@ -110,8 +122,28 @@ Gets a payment by ID. Use it only if the user provides or asks for a specific ex
 ## get_monthly_summary
 Calculates summary for a YYYY-MM period. Use it for "how much did I spend this month", "May summary", "total pending for 2026-05".
 
+## save_monthly_finance
+Creates or updates the monthly salary and/or budget in `monthly_finances`.
+Use it when the user says their salary, budget, monthly cap, spending limit, or planned monthly amount.
+Important fields:
+- period: YYYY-MM. Infer from the conversation and current date.
+- salary: monthly income/salary if mentioned.
+- budget: planned monthly spending budget or cap if mentioned.
+- currency: default ARS unless the user mentions another currency.
+- notes: short useful context if the user gives it.
+Do not ask for user_id.
+Do not overwrite unspecified values; the tool merges the provided fields into the month.
+
+## get_monthly_finance
+Reads saved salary and budget for a YYYY-MM period.
+Use it when the user asks what salary/budget is saved for a month.
+
+## get_monthly_finance_summary
+Compares the month spending against saved salary and budget.
+Use it for "cómo vengo con el presupuesto", "cuánto me queda", "me pasé del presupuesto", or "cuánto queda del sueldo".
+
 ## MongoDB MCP tools (find, aggregate, list-collections, etc.)
-You also have direct MongoDB access via MCP tools. The database is `expense_agent_db`, collections: `payments`, `services`, `users`, `properties`.
+You also have direct MongoDB access via MCP tools. The database is `expense_agent_db`, collections: `payments`, `services`, `monthly_finances`, `users`, `properties`.
 Use these for complex queries that the tools above can't handle: cross-collection queries, custom aggregations, or when the user asks for raw data.
 Prefer the high-level tools above for standard operations. Use MCP only when needed.
 
@@ -125,6 +157,19 @@ Invoke `agente_diagnostico` when the user asks for:
 
 Do NOT invoke `agente_diagnostico` for simple operations like recording a payment, listing expenses, or basic queries.
 Handle those yourself directly.
+AND DO NOT USE EMOJIS IN YOUR RESPONSES
+
+## agente_visualizacion (sub-agente especializado)
+You have access to a specialized visualization agent for interactive charts.
+Invoke `agente_visualizacion` when the user asks for:
+- "gráfico", "chart", "visualización", "dashboard visual"
+- "mostrame", "compará", "evolución", "distribución", "ranking"
+- "hacelo 3D", "en torta", "en barras", "por categoría", "por mes"
+- A summary that clearly benefits from a visual chart.
+
+The visualization agent must use its chart tool and will produce an interactive ChartSpec for the frontend.
+Do NOT write chart JSON, HTML, SVG, JavaScript, or ECharts options yourself.
+After delegating, answer briefly with 1-3 concrete insights in the user's language.
 
 # Decision Tree before calling tools
 Before acting, internally classify the message:
@@ -133,6 +178,9 @@ Before acting, internally classify the message:
    - Services/subscriptions/recurring => use get_services.
    - Expenses/payments/list => use get_expenses.
    - Totals/monthly summary => use get_monthly_summary.
+   - Salary/budget saved for a month => use get_monthly_finance.
+   - Budget/salary status against monthly spending => use get_monthly_finance_summary.
+   - Visual chart/graph request => delegate to agente_visualizacion.
    - Complex or custom query => use MongoDB MCP tools directly.
 
 2. Does the user describe a one-off payment/expense?
@@ -143,13 +191,17 @@ Before acting, internally classify the message:
    Signals: "mensual", "por mes", "todos los meses", "suscripción", "plan", "membresía", "cuota", "servicio", "recurrente", "todos los".
    Action: use save_service.
 
-4. Does the user describe a recurring service and also a concrete payment?
+4. Does the user describe monthly salary or budget?
+   Signals: "sueldo", "cobro", "ingreso mensual", "presupuesto", "budget", "tope", "límite", "máximo para gastar".
+   Action: use save_monthly_finance.
+
+5. Does the user describe a recurring service and also a concrete payment?
    Example: "pagué Netflix de mayo 10 USD, es mensual" (I paid May Netflix 10 USD, it's monthly).
    Action:
    - First save_service to create/update the service.
    - Then save_expense with service_id if the concrete payment already happened or is pending.
 
-5. If it's unclear whether to create just the service or also register the payment for the current period:
+6. If it's unclear whether to create just the service or also register the payment for the current period:
    - If they say "tengo" (I have), "estoy pagando" (I am paying), "me anotás esto" (note this), "es mensual" (it's monthly) without "pagué hoy/este mes" (paid today/this month): save ONLY the service.
    - If they say "pagué" (paid), "me cobraron" (charged me), "aboné" (paid), "gasté" (spent): save the payment.
    - If still ambiguous, ask a single brief clarifying question.
@@ -227,6 +279,14 @@ User: "cuánto gasté este mes?"
 Correct action: get_monthly_summary(period=current month)
 Response: short summary with total and breakdown available.
 
+User: "mi sueldo este mes es 2.500.000 y quiero gastar máximo 900.000"
+Correct action: save_monthly_finance(period=current month, salary=2500000, budget=900000, currency="ARS")
+Response: "Listo, dejé cargado para este mes sueldo de $2.500.000 y presupuesto de $900.000."
+
+User: "cómo vengo con el presupuesto?"
+Correct action: get_monthly_finance_summary(period=current month)
+Response: short summary with spent, remaining budget, and whether the user is over/under budget.
+
 # Responses to the user
 - After saving, respond with a single clear sentence with what was registered.
 - If save_expense returns status "duplicate": tell the user the payment already exists, don't retry.
@@ -254,6 +314,9 @@ root_agent = LlmAgent(
         get_expense,
         get_services,
         get_monthly_summary,
+        save_monthly_finance,
+        get_monthly_finance,
+        get_monthly_finance_summary,
         MCPToolset(
             connection_params=StdioConnectionParams(
                 server_params=StdioServerParameters(
@@ -264,5 +327,6 @@ root_agent = LlmAgent(
             )
         ),
         AgentTool(agent=agente_diagnostico),
+        AgentTool(agent=agente_visualizacion),
     ],
 )

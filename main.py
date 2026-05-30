@@ -15,7 +15,7 @@ from routes.agent import router as agent_router
 async def lifespan(app: FastAPI):
     db = get_db()
     app.state.db = db
-    for collection in ("users", "properties", "services", "payments"):
+    for collection in ("users", "properties", "services", "payments", "monthly_finances"):
         await safe_create_collection(db, collection)
     yield
     close_connection()

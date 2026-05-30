@@ -19,6 +19,18 @@ export type TraceStep = {
     status: TraceStatus
 }
 
+export type ChartSpec = {
+    id: string
+    title: string
+    subtitle?: string
+    mode: '2d' | '3d'
+    chartType: string
+    option: Record<string, unknown>
+    insights: string[]
+    source: Record<string, unknown>
+    generatedAt: string
+}
+
 export type Message = {
     id: number
     type: 'usuario' | 'agente'
@@ -27,6 +39,7 @@ export type Message = {
     fileUrl?: string
     fileType?: 'image' | 'pdf'
     traces?: TraceStep[]
+    charts?: ChartSpec[]
 }
 
 // Store de gastos

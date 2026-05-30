@@ -1,7 +1,8 @@
-# Expense Agent — Documentación para IA
+# Expense Agent — Documentación del Proyecto
 
-Proyecto para la **Google Cloud Rapid Agent Hackathon** (deadline: 11 junio 2026).
-Es un asistente contable personal con voz, imagen y chat, con arquitectura multi-agente y thinking steps visibles en la UI.
+El código es la fuente de verdad. Este documento describe el estado actual del repo.
+
+Expense Agent, hoy presentado en la UI como **Al Día**, es un asistente contable personal para registrar gastos, pagos, servicios recurrentes y cuotas por chat, audio, imagen o PDF. Está pensado como demo para la **Google Cloud Rapid Agent Hackathon** con arquitectura multi-agente y pasos de razonamiento visibles en la interfaz.
 
 ---
 
@@ -9,12 +10,13 @@ Es un asistente contable personal con voz, imagen y chat, con arquitectura multi
 
 | Capa | Tecnología |
 |---|---|
-| Backend | FastAPI + Python 3.14 |
-| Agente | Google ADK 2.1.0 (`google-adk`) |
-| DB | MongoDB Atlas via Motor (async) |
+| Backend | FastAPI + Python |
+| Agente | Google ADK 2.1.0 |
+| DB | MongoDB Atlas via Motor |
 | MCP | `mongodb-mcp-server` via npx |
-| HTTP externo | `httpx` (async) |
+| HTTP externo | `httpx` |
 | Frontend | SvelteKit 5 (runes mode) + Tailwind |
+| Gráficos | Apache ECharts + ECharts GL |
 | Sesiones | SQLite (`sessions.db`) |
 
 ---
@@ -35,7 +37,10 @@ Variables de entorno requeridas en `.env`:
 MONGO_URI=mongodb+srv://...
 GOOGLE_API_KEY=AIza...
 EXPENSE_AGENT_MODEL=gemini-2.5-flash   # opcional, este es el default
+MONGO_DB_NAME=expense_agent_db          # opcional
 ```
+
+El frontend usa `VITE_API_URL` si existe; si no, asume el backend en el mismo host, puerto `8000`.
 
 ---
 
@@ -47,16 +52,19 @@ Expense-Agent/
 ├── .env                             # MONGO_URI, GOOGLE_API_KEY
 ├── .mcp.json                        # Config del MongoDB MCP server (referencia)
 ├── sessions.db                      # SQLite de sesiones ADK (auto-generado)
+├── requirements.txt                  # Dependencias Python, ADK fijado en 2.1.0
 │
 ├── expense_agent/
 │   ├── agent.py                     # Root agent (LlmAgent) + override de features
-│   ├── tools.py                     # 6 tools del agente raíz (save_expense, etc.)
+│   ├── tools.py                     # Tools del agente raíz (gastos, servicios, presupuesto, sueldo)
 │   ├── tools_ipc.py                 # Tool para fetchear IPC del INDEC (datos.gob.ar)
 │   └── subagents/
-│       ├── __init__.py              # Exporta los 3 sub-agentes
+│       ├── __init__.py              # Exporta sub-agentes
 │       ├── agente_inflacion.py      # Ajuste por inflación con IPC real
 │       ├── agente_cuotas.py         # Análisis de compromisos recurrentes
-│       └── agente_diagnostico.py   # Diagnóstico financiero (orquesta los otros dos)
+│       ├── agente_diagnostico.py    # Diagnóstico financiero
+│       └── agente_visualizacion.py  # Gráficos interactivos
+│   └── charting.py                  # Tool y builder de ChartSpec seguro
 │
 ├── routes/
 │   ├── agent.py                     # /agent/* endpoints (SSE streaming)
@@ -69,6 +77,10 @@ Expense-Agent/
 ├── db/
 │   ├── db.py                        # Motor client singleton (get_db, get_client)
 │   └── schema.py                    # Definiciones de colecciones
+├── helpers/
+│   └── db_helpers.py                 # Creación segura de colecciones
+├── tests/
+│   └── test_frontend_api_params.py   # Check de compat frontend/backend
 │
 ├── frontend/src/
 │   ├── routes/
@@ -79,7 +91,8 @@ Expense-Agent/
 │       ├── api/client.ts            # API client con SSE streaming
 │       ├── stores/expenses.ts       # Svelte stores: messages, expenses, TraceStep
 │       └── components/
-│           └── ThinkingSteps.svelte # Componente de thinking steps
+│           ├── ThinkingSteps.svelte # Componente de thinking steps
+│           └── ChatChart.svelte     # Render ECharts/ECharts GL en chat
 ```
 
 ---
@@ -90,7 +103,7 @@ Expense-Agent/
 
 El orquestador principal. Maneja directamente las operaciones cotidianas y delega análisis complejos.
 
-**Bug crítico resuelto**: ADK 2.1.0 tiene `JSON_SCHEMA_FOR_FUNC_DECL` habilitado por defecto, lo que hace que Gemini ignore todas las tools. Se deshabilita así **antes** de crear cualquier LlmAgent:
+ADK 2.1.0 tiene `JSON_SCHEMA_FOR_FUNC_DECL` habilitado por defecto; en este proyecto se deshabilita antes de crear cualquier `LlmAgent` porque provocaba que Gemini ignorara tools:
 ```python
 override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 ```
@@ -102,8 +115,12 @@ override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 - `get_expense` — obtiene un gasto por ID
 - `get_services` — lista servicios recurrentes
 - `get_monthly_summary` — resumen mensual por status
+- `save_monthly_finance` — guarda/actualiza sueldo y presupuesto de un mes
+- `get_monthly_finance` — consulta sueldo y presupuesto guardados
+- `get_monthly_finance_summary` — compara gastos contra presupuesto/sueldo
 - `MCPToolset` — acceso directo a MongoDB (operaciones complejas)
 - `AgentTool(agente_diagnostico)` — delegación de análisis financiero complejo
+- `AgentTool(agente_visualizacion)` — delegación de gráficos interactivos
 
 **Cuándo delega a `agente_diagnostico`** (según el prompt):
 - "¿cómo me fue este mes?" / "resumen de mayo"
@@ -112,6 +129,11 @@ override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 - "diagnóstico" / "salud financiera"
 
 **Nunca delega para**: registrar un gasto, listar, queries simples.
+
+**Cuándo delega a `agente_visualizacion`**:
+- "haceme un gráfico", "visualizá", "mostrame"
+- "compará", "evolución", "distribución", "ranking"
+- "por categoría", "por mes", "en 3D", "en torta", "en barras"
 
 ---
 
@@ -133,6 +155,31 @@ override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 - **Tools**: `AgentTool(agente_inflacion)`, `AgentTool(agente_cuotas)`, `MCPToolset`
 - **Flujo**: llama a inflación → llama a cuotas → sintetiza → genera reporte con insights accionables
 
+#### `agente_visualizacion`
+- **Misión**: elegir el gráfico adecuado y producir una visualización interactiva segura
+- **Tools**: `get_chart_source_data`, `generate_custom_chart`, `generate_financial_chart`
+- **Flujo recomendado**: interpreta intención visual → lee pagos crudos → decide categorías semánticas → diseña un `option` completo de ECharts → llama a `generate_custom_chart`
+- **Fallback**: `generate_financial_chart` queda para gráficos simples/rápidos
+- **Regla**: el agente tiene libertad total sobre el diseño del gráfico, pero el backend valida que el `option` sea JSON puro sin funciones ni strings ejecutables
+- **Tono**: no debe mencionar campos internos (`service_id`, `category_overrides`), MongoDB, tools, JSON/specs ni pasos operativos; solo muestra el gráfico y una lectura contable
+
+### ChartSpec
+`expense_agent/charting.py` genera specs compatibles con ECharts:
+```
+id, title, subtitle, mode ("2d"|"3d"), chartType, option,
+insights, source, generatedAt
+```
+
+Hay dos caminos:
+- `generate_custom_chart`: el sub-agente arma libremente las opciones completas de ECharts (`dataset`, `series`, `encode`, `grid`, `legend`, `xAxis`, `yAxis`, `grid3D`, etc.) y el backend solo sanitiza/encola.
+- Todos los charts se normalizan a tema oscuro/transparente para integrarse con el chat negro.
+- `generate_financial_chart`: builder determinístico con catálogo curado, usado como fallback.
+
+Catálogo fallback:
+- 2D: `bar`, `stacked_bar`, `line`, `area`, `pie`, `donut`, `treemap`, `heatmap`, `radar`, `scatter`, `waterfall`
+- 3D: `bar3d`, `scatter3d`, `category_month_bar3d`
+- `auto` elige 2D para claridad simple y 3D cuando hay dos dimensiones relevantes
+
 ---
 
 ## MongoDB
@@ -145,7 +192,7 @@ override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 ```
 user_id, amount, currency, payment_date (datetime|ISO string),
 due_date, status (paid|pending|overdue), notes, period (YYYY-MM),
-service_id, input_method, created_at
+service_id, property_id, input_method, metadata, ai_extracted, created_at
 ```
 
 ### `services` — servicios recurrentes y suscripciones
@@ -156,15 +203,27 @@ currency, active, default_due_day, metadata.recurring_amount,
 metadata.notes, created_at, updated_at
 ```
 
-### `users`, `properties` — soporte futuro (aún no usados en profundidad)
+### `monthly_finances` — sueldo y presupuesto mensual
+```
+user_id, period (YYYY-MM), salary, budget, currency, notes,
+created_at, updated_at
+```
 
-**`user_id` fijo**: `"demo_user"` — hardcodeado en `tools.py` y `routes/frontend_compat.py`. El modelo nunca lo recibe como input.
+El agente usa esta colección para registrar frases como "mi sueldo este mes es X" o "quiero gastar máximo Y" y para responder "cómo vengo con el presupuesto" cruzándolo con `payments`.
+
+### `users`, `properties`
+Existen como soporte para una etapa posterior. Hoy no son el centro del flujo.
+
+**`user_id` fijo**: `"demo_user"` en tools y rutas compat. Es intencional por ahora: todavía no hay login ni multiusuario.
 
 ---
 
 ## SSE Streaming (backend)
 
-Endpoint principal: `POST /agent/message/stream`
+Endpoints streaming:
+- `POST /agent/message/stream`
+- `POST /agent/audio/stream`
+- `POST /agent/image/stream`
 
 Eventos SSE emitidos por `_stream_agent` en `routes/agent.py`:
 
@@ -172,12 +231,15 @@ Eventos SSE emitidos por `_stream_agent` en `routes/agent.py`:
 |---|---|---|
 | `token` | `{"text": "..."}` | Cada chunk de texto del agente |
 | `thinking` | `{"agent": "agente_inflacion", "status": "running"\|"done", "label": "..."}` | Cuando el root agent invoca/recibe respuesta de un sub-agente |
+| `chart` | `ChartSpec` | Cuando `generate_financial_chart` devuelve una visualización exitosa |
 | `error` | `{"message": "..."}` | Error del modelo o del agente |
 | `done` | `{}` | Fin del turno |
 
-**Fix crítico de duplicados** (`_stream_agent`): ADK's `StreamingResponseAggregator.close()` genera un evento `partial=False` con texto + function_call juntos. Este evento tiene `is_final_response()=False` (por la FC), así que sin el fix iría al branch de deltas y emitiría el texto de nuevo. El fix detecta `event.get_function_calls()` primero y lo ignora (el texto ya fue streameado via deltas).
+`_stream_agent` detecta primero los `function_calls` para evitar duplicar texto cuando ADK cierra un agregado con texto + tool call. Ese texto ya fue emitido como delta parcial.
 
-**Thinking events**: cuando `event.get_function_calls()` contiene el nombre de un sub-agente conocido (`agente_diagnostico`, `agente_inflacion`, `agente_cuotas`), se emite `thinking` con `status: "running"`. Cuando llega el `function_response` correspondiente, se emite `thinking` con `status: "done"`.
+**Thinking events**: cuando `event.get_function_calls()` contiene el nombre de un sub-agente conocido (`agente_diagnostico`, `agente_inflacion`, `agente_cuotas`, `agente_visualizacion`), se emite `thinking` con `status: "running"`. Cuando llega el `function_response` correspondiente, se emite `thinking` con `status: "done"`.
+
+**Chart events**: cuando `generate_financial_chart` produce un `ChartSpec`, la tool lo deja en una cola efímera local. `_stream_agent` drena esa cola y emite `event: chart`. Esto cubre tanto llamadas directas como llamadas internas del sub-agente `agente_visualizacion`, porque ADK no siempre expone las tool calls anidadas como `function_response` del runner raíz.
 
 ---
 
@@ -191,7 +253,7 @@ type TraceStep = { agent: string; label: string; status: 'running' | 'done' | 'e
 type Message = {
   id: number; type: 'usuario' | 'agente'; text: string;
   loading?: boolean; fileUrl?: string; fileType?: 'image' | 'pdf';
-  traces?: TraceStep[]
+  traces?: TraceStep[]; charts?: ChartSpec[]
 }
 ```
 
@@ -199,9 +261,19 @@ type Message = {
 1. Usuario manda mensaje → se crea mensaje agente con `traces: []`
 2. SSE `thinking` llega → `upsertTrace()` actualiza el TraceStep del agente correspondiente
 3. SSE `token` llega → texto se acumula en `responseText`
-4. `ThinkingSteps.svelte` se muestra arriba del texto mientras `loading=true`, se auto-colapsa 1.5s después de que todos los pasos terminan
+4. SSE `chart` llega → `ChatChart.svelte` renderiza el gráfico interactivo arriba del texto
+5. `ThinkingSteps.svelte` se muestra arriba del texto mientras `loading=true`, se auto-colapsa 1.5s después de que todos los pasos terminan
 
 **Animación de tokens**: cada palabra del stream tiene `animation-delay` calculado por offset en el HTML. Ver `parseAndAnimate()` en `+page.svelte`.
+
+**Media input**:
+- Audio: `MediaRecorder` captura audio del navegador, se convierte a WAV en cliente y se envía a `/agent/audio/stream`.
+- Imagen/PDF: se previsualiza en el chat y se envía a `/agent/image/stream`.
+
+**Gráficos**:
+- `ChatChart.svelte` carga `echarts` y `echarts-gl` solo en cliente.
+- Sanitiza strings ejecutables antes de pasar opciones a ECharts.
+- Los gráficos son efímeros en el mensaje; no se persisten en MongoDB ni ADK Artifacts.
 
 **`StreamHandlers`** en `api/client.ts`:
 ```ts
@@ -210,6 +282,7 @@ type StreamHandlers = {
   onError?: (message: string) => void
   onDone?: () => void
   onThinking?: (agent: string, status: string, label: string) => void
+  onChart?: (chart: ChartSpec) => void
 }
 ```
 
@@ -217,11 +290,14 @@ type StreamHandlers = {
 
 ## MCPToolset — MongoDB MCP
 
-El `mongodb-mcp-server` se lanza via `npx` cada vez que un agente necesita usarlo. Cada instancia de `MCPToolset` en un sub-agente crea su propio proceso.
+El `mongodb-mcp-server` se lanza via `npx` desde cada `MCPToolset` configurado en el agente raíz y subagentes.
 
-**Variable de entorno requerida por el MCP**: `MDB_MCP_CONNECTION_STRING` (se pasa desde `MONGO_URI`).
+En código se mapea `MONGO_URI` a la variable esperada por el proceso MCP:
+```
+MDB_MCP_CONNECTION_STRING=<MONGO_URI>
+```
 
-Nota: `.mcp.json` en la raíz usa `MONGODB_URI` (distinto nombre), pero en el código de los agentes se usa `MDB_MCP_CONNECTION_STRING` mapeado desde `MONGO_URI`.
+`.mcp.json` queda como referencia para usar MCP fuera del runtime de ADK.
 
 ---
 
@@ -229,20 +305,26 @@ Nota: `.mcp.json` en la raíz usa `MONGODB_URI` (distinto nombre), pero en el c�
 
 | Método | Path | Descripción |
 |---|---|---|
+| POST | `/agent/message` | Chat no-streaming |
 | POST | `/agent/message/stream` | Chat streaming (SSE) — **el principal** |
+| POST | `/agent/audio` | Audio no-streaming |
 | POST | `/agent/audio/stream` | Audio streaming (SSE) |
+| POST | `/agent/image` | Imagen/PDF no-streaming |
 | POST | `/agent/image/stream` | Imagen/PDF streaming (SSE) |
-| GET | `/expenses` | Lista gastos (para el dashboard) |
-| POST | `/expenses` | Crea gasto manualmente |
+| GET | `/expenses?month=YYYY-MM` | Lista gastos para frontend |
+| POST | `/expenses` | Crea gasto manualmente desde frontend |
 | PATCH | `/expenses/{id}/pay` | Marca gasto como pagado |
-| GET | `/summary` | Resumen de totales |
+| GET | `/summary?month=YYYY-MM` | Resumen para dashboard |
+| CRUD | `/payments/*` | CRUD genérico de pagos |
+| GET | `/payments/summary/?user_id=...&period=YYYY-MM` | Resumen genérico por status |
+| POST/GET | `/users/*` | CRUD mínimo de usuarios |
 | GET | `/health` | Health check |
 
 ---
 
 ## ADK — Detalles importantes
 
-- **Versión**: `google-adk==2.1.0`
+- **Versión usada/local**: `google-adk==2.1.0`
 - **Sesiones**: `SqliteSessionService("sessions.db")` — si hay problemas de compatibilidad de historial (ej: cambio de modelo), borrar `sessions.db`
 - **Runner**: singleton en `routes/agent.py`, sesión fija `SESSION_ID="demo_session"`, `USER_ID="demo_user"`
 - **Streaming**: `RunConfig(streaming_mode=StreamingMode.SSE)` + `PROGRESSIVE_SSE_STREAMING` feature habilitada por defecto en ADK 2.1.0
@@ -276,6 +358,31 @@ result = await calculate_inflation_coefficient("2026-01", "2026-04")
 ```
 
 API pública, sin auth, sin rate limiting estricto. Responde en ~200ms.
+
+---
+
+## Frontend — Vistas
+
+### `/`
+Chat principal. Es la experiencia primaria del producto.
+
+### `/expenses`
+Lista gastos desde `GET /expenses`, separa pendientes y pagados, y permite marcar un pendiente como pagado con `PATCH /expenses/{id}/pay`.
+
+### `/dashboard`
+Dashboard básico para el mes actual. Consume `GET /summary?month=YYYY-MM`. Tiene tarjetas de gastado, pendiente y pagos; gráfico por categoría y calendario siguen como placeholders.
+
+---
+
+## Estado Actual y Deuda Conocida
+
+- No hay autenticación ni multiusuario; `demo_user` es deliberado.
+- La categorización del frontend compat es heurística por texto (`luz`, `gas`, `agua`, etc.).
+- El dashboard todavía no implementa gráficos ni calendario real.
+- Los gráficos generados por agente viven en el chat; el dashboard sigue separado y básico.
+- `sessions.db` es estado local de ADK. Puede cambiar al usar el agente.
+- Hay dos lockfiles en frontend (`package-lock.json` y `pnpm-lock.yaml`) porque el proyecto se puede levantar con npm o pnpm; hoy los scripts documentados usan npm.
+- Los tests actuales son mínimos y cubren la compatibilidad del query param mensual entre frontend y backend.
 
 ---
 

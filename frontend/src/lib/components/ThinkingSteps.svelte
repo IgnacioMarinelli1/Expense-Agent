@@ -60,10 +60,8 @@
 
 <style>
     .thinking-wrapper {
-        margin-bottom: 0.6rem;
-        border: 1px solid color-mix(in srgb, currentColor 10%, transparent);
-        border-radius: 10px;
-        overflow: hidden;
+        margin: 0 0 0.7rem;
+        padding-left: 0.15rem;
         font-size: 0.8rem;
     }
 
@@ -71,9 +69,9 @@
         display: flex;
         align-items: center;
         gap: 0.4rem;
-        width: 100%;
-        padding: 0.45rem 0.75rem;
-        background: color-mix(in srgb, currentColor 5%, transparent);
+        width: fit-content;
+        padding: 0.1rem 0;
+        background: transparent;
         border: none;
         cursor: pointer;
         text-align: left;
@@ -81,7 +79,7 @@
     }
 
     .thinking-toggle:hover {
-        background: color-mix(in srgb, currentColor 8%, transparent);
+        color: color-mix(in srgb, currentColor 88%, transparent);
     }
 
     .toggle-icon {
@@ -105,11 +103,12 @@
     }
 
     .trace-list {
-        padding: 0.4rem 0.75rem 0.5rem;
+        margin-top: 0.35rem;
+        padding: 0 0 0 1rem;
         display: flex;
         flex-direction: column;
         gap: 0.3rem;
-        border-top: 1px solid color-mix(in srgb, currentColor 8%, transparent);
+        border-left: 1px solid color-mix(in srgb, currentColor 12%, transparent);
     }
 
     .trace-row {

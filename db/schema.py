@@ -60,3 +60,19 @@ class PaymentSchema(TypedDict):
     metadata: dict[str, Any]      # Extra system/integrations metadata
     ai_extracted: dict[str, Any]  # Key-value pairs extracted by the AI agent
     created_at: datetime   # Timestamp of creation in the system
+
+
+class MonthlyFinanceSchema(TypedDict):
+    """
+    Schema for the 'monthly_finances' collection.
+    Stores the user's salary and spending budget for one accounting period.
+    """
+    _id: ObjectId          # PK: Primary Key
+    user_id: UserSchema['_id']      # FK: Bound to UserSchema._id type
+    period: str            # Accounting period in YYYY-MM format
+    salary: Optional[float] # Monthly salary/income for the period
+    budget: Optional[float] # Planned spending cap for the period
+    currency: str          # Currency code (e.g., 'ARS', 'USD')
+    notes: Optional[str]   # Optional context from the user
+    created_at: datetime   # Timestamp when the record was created
+    updated_at: datetime   # Timestamp when the record was last updated

@@ -33,6 +33,8 @@
 	},
 	"dependencies": {
 		"@tailwindcss/vite": "^4.3.0",
+		"echarts": "^6.1.0",
+		"echarts-gl": "^2.1.0",
 		"marked": "^18.0.4",
 		"tailwindcss": "^4.0.0"
 	}

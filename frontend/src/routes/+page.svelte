@@ -1,12 +1,32 @@
+<script module lang="ts">
+    // Module scope: persists across navigations so finished messages don't re-animate
+    const tokenStartTimes = new Map<string, number>();
+    const messageLastStartTime = new Map<string, number>();
+</script>
+
 <script lang="ts">
-    import { messages, type TraceStep } from "$lib/stores/expenses";
+    import { onMount } from "svelte";
+    import { messages, type TraceStep, type ChartSpec } from "$lib/stores/expenses";
     import { api } from "$lib/api/client";
     import { Bot, Mic, Square, ArrowUp, Camera } from "@lucide/svelte";
     import { marked } from "marked";
     import ThinkingSteps from "$lib/components/ThinkingSteps.svelte";
+    import ChatChart from "$lib/components/ChatChart.svelte";
 
-    const tokenStartTimes = new Map<string, number>();
-    const messageLastStartTime = new Map<string, number>();
+    // Instance scope: repopulated on mount to detect pre-existing messages on first render
+    const knownHistoryMessages = new Set<string>();
+
+    onMount(() => {
+        const unsubscribe = messages.subscribe(($messages) => {
+            // Solo lo hacemos la primera vez, marcamos todo lo que ya cargó
+            if (knownHistoryMessages.size === 0) {
+                for (const msg of $messages) {
+                    if (!msg.loading) knownHistoryMessages.add(msg.id);
+                }
+            }
+        });
+        return unsubscribe;
+    });
 
     function parseAndAnimate(message: any) {
         if (!message.text) return "";
@@ -15,19 +35,27 @@
         const now = Date.now();
 
         if (!message.loading) {
-            // Si el mensaje cargó pero no tenemos un registro de su inicio,
-            // es un mensaje viejo del historial, lo renderizamos de una.
+            // Si es un mensaje del historial inicial (ya estaba completado cuando cargó la pag),
+            // lo renderizamos sin animar.
+            if (knownHistoryMessages.has(message.id)) {
+                return html;
+            }
+            
+            if (messageLastStartTime.has(message.id)) {
+                const finalTime = messageLastStartTime.get(message.id)!;
+                // Si la ultima palabra empezó hace más de 1200ms, ya terminó toda la animación.
+                if (now - finalTime > 1200) {
+                    return html;
+                }
+            } else {
+                // Si llegó tan rápido que no tuvimos tiempo de registrar el inicio, 
+                // NO retornamos html directo, queremos que se anime todo igual!
+            }
+        } else {
+            // Si está cargando y no estaba en el set, no es historial viejo.
             if (!messageLastStartTime.has(message.id)) {
-                return html;
+                // Se inicializará abajo.
             }
-            // Si ya pasó suficiente tiempo desde que la última palabra empezó a animarse,
-            // podemos devolver el HTML crudo sin los spans de animación.
-            const finalTime = messageLastStartTime.get(message.id)!;
-            if (now - finalTime > 800) {
-                return html;
-            }
-            // Si el backend terminó de mandar el texto (loading=false) pero VISUALMENTE
-            // la animación todavía no terminó de correr, seguimos con la lógica de tokens.
         }
 
         let currentOffset = 0;
@@ -59,14 +87,14 @@
 
                     if (!tokenStartTimes.has(key)) {
                         tokenStartTimes.set(key, lastStartTime);
-                        lastStartTime += 15; // 30ms de separación por cada palabra
+                        lastStartTime += 30; // 30ms de separación por palabra
                     }
 
                     const startTime = tokenStartTimes.get(key)!;
                     const timeUntilStart = startTime - now;
 
-                    // Si la animación (800ms) ya terminó, devolvemos el texto plano
-                    if (timeUntilStart <= -800) {
+                    // Animación de 500ms
+                    if (timeUntilStart <= -500) {
                         return part;
                     }
 
@@ -192,12 +220,21 @@
         );
     }
 
+    function addChartToMessage(id: number, chart: ChartSpec) {
+        messages.update((m) =>
+            m.map((msg) =>
+                msg.id !== id ? msg : { ...msg, charts: [...(msg.charts ?? []), chart] },
+            ),
+        );
+    }
+
     async function streamIntoMessage(
         id: number,
         startStream: (handlers: {
             onToken: (token: string) => void;
             onError: (message: string) => void;
             onThinking: (agent: string, status: string, label: string) => void;
+            onChart: (chart: ChartSpec) => void;
         }) => Promise<void>,
         fallback: string,
     ) {
@@ -217,6 +254,9 @@
                 },
                 onThinking: (agent, status, label) => {
                     upsertTrace(id, agent, status, label);
+                },
+                onChart: (chart) => {
+                    addChartToMessage(id, chart);
                 },
             });
             messages.update((m) =>
@@ -257,6 +297,7 @@
                 onToken: handlers.onToken,
                 onError: handlers.onError,
                 onThinking: handlers.onThinking,
+                onChart: handlers.onChart,
             }),
             "Hubo un error al conectar con el agente. ¿El backend está corriendo?",
         );
@@ -299,6 +340,7 @@
                             onToken: handlers.onToken,
                             onError: handlers.onError,
                             onThinking: handlers.onThinking,
+                            onChart: handlers.onChart,
                         }),
                         "No pude procesar el audio.",
                     );
@@ -348,6 +390,7 @@
                 onToken: handlers.onToken,
                 onError: handlers.onError,
                 onThinking: handlers.onThinking,
+                onChart: handlers.onChart,
             }),
             "No pude procesar la imagen.",
         );
@@ -365,14 +408,6 @@
                         {#if message.fileUrl}
                             <div class="flex flex-col gap-3 mb-2">
                                 {#if message.fileType === "pdf"}
-                                    <div
-                                        class="flex items-center gap-2 pb-1 border-b border-border"
-                                    >
-                                        <span class="text-xl">📄</span>
-                                        <span class="font-medium"
-                                            >Documento PDF</span
-                                        >
-                                    </div>
                                     <embed
                                         src={message.fileUrl}
                                         type="application/pdf"
@@ -429,6 +464,12 @@
                             <div class="markdown-body">
                                 {@html parseAndAnimate(message)}
                             </div>
+                        {/if}
+
+                        {#if message.charts?.length}
+                            {#each message.charts as chart (chart.id)}
+                                <ChatChart {chart} />
+                            {/each}
                         {/if}
                     </div>
                 </article>
@@ -556,9 +597,8 @@
         display: inline-block;
         opacity: 0;
         transform: translateY(0.3em);
-        /* Hacemos que dure 800ms en lugar de 340ms */
-        animation: token-enter 400ms cubic-bezier(0.3, 0, 1, 1) forwards;
-        animation-delay: var(--stream-token-delay, 0ms);
+        /* 500ms de animación */
+        animation: token-enter 500ms cubic-bezier(0.3, 0, 1, 1) forwards;
         will-change: opacity, transform;
     }
 

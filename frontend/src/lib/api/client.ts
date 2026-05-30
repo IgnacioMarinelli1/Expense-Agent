@@ -1,4 +1,6 @@
-// URL del backend — cuando Dev 2 tenga el servidor listo, cambiás esta línea
+import type { ChartSpec } from '$lib/stores/expenses'
+
+// URL del backend. En dev local, si VITE_API_URL no está configurado, usa :8000.
 const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
 
 type StreamHandlers = {
@@ -6,6 +8,7 @@ type StreamHandlers = {
     onError?: (message: string) => void
     onDone?: () => void
     onThinking?: (agent: string, status: string, label: string) => void
+    onChart?: (chart: ChartSpec) => void
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -47,6 +50,7 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
         if (event === 'error') handlers.onError?.(data.message ?? 'No pude procesar tu mensaje.')
         if (event === 'done') handlers.onDone?.()
         if (event === 'thinking') handlers.onThinking?.(data.agent, data.status, data.label)
+        if (event === 'chart') handlers.onChart?.(data)
     }
 
     while (true) {
@@ -70,7 +74,7 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
 export const api = {
     // Obtener todos los gastos del mes
     getExpenses(mes?: string) {
-        const query = mes ? `?mes=${mes}` : ''
+        const query = mes ? `?month=${mes}` : ''
         return request<any[]>(`/expenses${query}`)
     },
 
@@ -126,7 +130,7 @@ export const api = {
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
-        return res.json() as Promise<{ respuesta: string }>
+        return res.json() as Promise<{ response: string }>
     },
 
     streamAudio(blob: Blob, handlers: StreamHandlers) {
@@ -166,7 +170,7 @@ export const api = {
     // ── Resumen ───────────────────────────────────────
 
     getSummary(mes?: string) {
-        const query = mes ? `?mes=${mes}` : ''
+        const query = mes ? `?month=${mes}` : ''
         return request<{
             total: number
             paid: number

@@ -12,6 +12,7 @@ from google.genai.errors import ServerError
 from google.genai.types import Content, Part
 
 from expense_agent.agent import root_agent
+from expense_agent.charting import pop_pending_chart_specs
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
@@ -58,8 +59,13 @@ _SUBAGENT_LABELS: dict[str, dict[str, str]] = {
         "running": "Analizando compromisos y cuotas...",
         "done": "Cuotas analizadas",
     },
+    "agente_visualizacion": {
+        "running": "Preparando visualización interactiva...",
+        "done": "Gráfico listo",
+    },
 }
 _SUBAGENT_NAMES = set(_SUBAGENT_LABELS.keys())
+_CHART_TOOL_NAME = "generate_financial_chart"
 
 
 class MessageRequest(BaseModel):
@@ -94,6 +100,21 @@ def _thinking_sse(agent_name: str, status: str) -> str:
     labels = _SUBAGENT_LABELS.get(agent_name, {})
     label = labels.get(status, agent_name)
     return _sse("thinking", {"agent": agent_name, "status": status, "label": label})
+
+
+def _chart_payload_from_function_response(function_response) -> dict | None:
+    if getattr(function_response, "name", None) != _CHART_TOOL_NAME:
+        return None
+    response = getattr(function_response, "response", None)
+    if not isinstance(response, dict) or response.get("status") != "success":
+        return None
+    chart_spec = response.get("chart_spec")
+    return chart_spec if isinstance(chart_spec, dict) else None
+
+
+def _drain_pending_chart_sse():
+    for chart_spec in pop_pending_chart_specs():
+        yield _sse("chart", chart_spec)
 
 
 def _agent_error_message(exc: Exception, modality_label: str) -> str | None:
@@ -150,6 +171,7 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
     try:
         total_streamed = ""
         turn_boundary_pending = False
+        emitted_chart_ids: set[str] = set()
         async for event in _runner.run_async(
             user_id=USER_ID,
             session_id=SESSION_ID,
@@ -189,8 +211,26 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
                     yield _sse("token", {"text": text})
 
             for fr in event.get_function_responses():
+                chart_payload = _chart_payload_from_function_response(fr)
+                chart_id = chart_payload.get("id") if chart_payload else None
+                if chart_payload and chart_id not in emitted_chart_ids:
+                    if chart_id:
+                        emitted_chart_ids.add(chart_id)
+                    yield _sse("chart", chart_payload)
                 if fr.name in _SUBAGENT_NAMES:
                     yield _thinking_sse(fr.name, "done")
+
+            for chart_event in _drain_pending_chart_sse():
+                try:
+                    event_data = json.loads(chart_event.split("data: ", 1)[1])
+                    chart_id = event_data.get("id")
+                except Exception:
+                    chart_id = None
+                if chart_id in emitted_chart_ids:
+                    continue
+                if chart_id:
+                    emitted_chart_ids.add(chart_id)
+                yield chart_event
 
             if event.error_message:
                 yield _sse("error", {"message": event.error_message})

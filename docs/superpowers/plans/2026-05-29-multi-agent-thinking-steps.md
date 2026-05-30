@@ -2,6 +2,8 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 
+Estado actual: este plan ya fue implementado en el código. Se conserva como referencia histórica del trabajo hecho.
+
 **Goal:** Agregar 3 sub-agentes especializados (inflación, cuotas, diagnóstico) al agente raíz existente, con thinking steps visibles en la UI durante la delegación.
 
 **Architecture:** Root agent (ExpenseBot) maneja queries simples directamente y delega análisis complejos a AgenteDiagnostico via AgentTool. AgenteDiagnostico orquesta AgenteInflacion y AgenteCuotas. Backend emite SSE `"thinking"` events cuando detecta function calls a sub-agentes. Frontend renderiza TraceStep[] sobre la respuesta.
@@ -15,9 +17,9 @@
 **Files:**
 - Create: `expense_agent/tools_ipc.py`
 
-- [ ] Crear tool que fetchea índice IPC de datos.gob.ar y calcula coeficiente de ajuste
-- [ ] Verificar manualmente con curl que la API responde
-- [ ] Commit
+- [x] Crear tool que fetchea índice IPC de datos.gob.ar y calcula coeficiente de ajuste
+- [x] Verificar manualmente con curl que la API responde
+- [x] Commit
 
 ---
 
@@ -27,8 +29,8 @@
 - Create: `expense_agent/subagents/__init__.py`
 - Create: `expense_agent/subagents/agente_inflacion.py`
 
-- [ ] Crear sub-agente con tools_ipc + MCPToolset
-- [ ] Commit
+- [x] Crear sub-agente con tools_ipc + MCPToolset
+- [x] Commit
 
 ---
 
@@ -37,8 +39,8 @@
 **Files:**
 - Create: `expense_agent/subagents/agente_cuotas.py`
 
-- [ ] Crear sub-agente de cuotas con MCPToolset
-- [ ] Commit
+- [x] Crear sub-agente de cuotas con MCPToolset
+- [x] Commit
 
 ---
 
@@ -47,8 +49,8 @@
 **Files:**
 - Create: `expense_agent/subagents/agente_diagnostico.py`
 
-- [ ] Crear sub-agente que orquesta inflacion + cuotas via AgentTool
-- [ ] Commit
+- [x] Crear sub-agente que orquesta inflacion + cuotas via AgentTool
+- [x] Commit
 
 ---
 
@@ -57,9 +59,9 @@
 **Files:**
 - Modify: `expense_agent/agent.py`
 
-- [ ] Agregar AgentTool(agente_diagnostico) al tools list
-- [ ] Actualizar prompt del orquestador con instrucciones de delegación
-- [ ] Commit
+- [x] Agregar AgentTool(agente_diagnostico) al tools list
+- [x] Actualizar prompt del orquestador con instrucciones de delegación
+- [x] Commit
 
 ---
 
@@ -68,8 +70,8 @@
 **Files:**
 - Modify: `routes/agent.py`
 
-- [ ] En `_stream_agent`: detectar function calls/responses a sub-agentes y emitir SSE "thinking"
-- [ ] Commit
+- [x] En `_stream_agent`: detectar function calls/responses a sub-agentes y emitir SSE "thinking"
+- [x] Commit
 
 ---
 
@@ -78,8 +80,8 @@
 **Files:**
 - Modify: `frontend/src/lib/stores/expenses.ts`
 
-- [ ] Agregar tipo TraceStep, actualizar Message para incluir traces[]
-- [ ] Commit
+- [x] Agregar tipo TraceStep, actualizar Message para incluir traces[]
+- [x] Commit
 
 ---
 
@@ -88,8 +90,8 @@
 **Files:**
 - Create: `frontend/src/lib/components/ThinkingSteps.svelte`
 
-- [ ] Componente que renderiza trace steps con animación running/done/error
-- [ ] Commit
+- [x] Componente que renderiza trace steps con animación running/done/error
+- [x] Commit
 
 ---
 
@@ -98,8 +100,8 @@
 **Files:**
 - Modify: `frontend/src/lib/api/client.ts`
 
-- [ ] Agregar onThinking handler a StreamHandlers, procesar evento SSE "thinking"
-- [ ] Commit
+- [x] Agregar onThinking handler a StreamHandlers, procesar evento SSE "thinking"
+- [x] Commit
 
 ---
 
@@ -108,5 +110,5 @@
 **Files:**
 - Modify: `frontend/src/routes/+page.svelte`
 
-- [ ] Pasar onThinking al streamRequest, renderizar ThinkingSteps sobre cada mensaje agente
-- [ ] Commit
+- [x] Pasar onThinking al streamRequest, renderizar ThinkingSteps sobre cada mensaje agente
+- [x] Commit
