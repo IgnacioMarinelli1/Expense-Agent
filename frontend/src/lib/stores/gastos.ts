@@ -1,15 +1,11 @@
+/**
+ * gastos.ts — Re-exporta tipos y el store de mensajes del chat.
+ * Los datos de gastos y resumen ahora viven en appState.svelte.ts
+ */
 import { writable } from 'svelte/store'
 
-export type Gasto = {
-    id: string
-    tipo: string
-    categoria: string
-    monto: number
-    fecha: string
-    vencimiento?: string
-    pagado: boolean
-    notas?: string
-}
+// Re-exporta Gasto desde el store centralizado para compatibilidad
+export type { Gasto } from './appState.svelte.ts'
 
 export type Mensaje = {
     id: number
@@ -20,10 +16,7 @@ export type Mensaje = {
     fileType?: 'image' | 'pdf'
 }
 
-// Store de gastos
-export const gastos = writable<Gasto[]>([])
-
-// Store del chat
+// Store de chat (sigue siendo writable de Svelte — es solo UI local)
 export const mensajes = writable<Mensaje[]>([
     {
         id: 1,
@@ -32,5 +25,5 @@ export const mensajes = writable<Mensaje[]>([
     }
 ])
 
-// Store de estado de carga
+// Store de estado de carga del chat
 export const cargando = writable(false)

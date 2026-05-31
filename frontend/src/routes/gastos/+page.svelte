@@ -1,12 +1,10 @@
 <script lang="ts">
     import { onMount } from 'svelte'
+    import { appState, invalidar } from '$lib/stores/appState.svelte'
     import { api } from '$lib/api/client'
-    import type { Gasto } from '$lib/stores/gastos'
     import { Check, CheckCircle2 } from '@lucide/svelte'
 
-    let gastos = $state<Gasto[]>([])
-    let cargando = $state(true)
-    let error = $state('')
+    const mesActual = new Date().toISOString().slice(0, 7)
 
     const colores: Record<string, string> = {
         luz:       'var(--cat-luz)',
@@ -17,32 +15,30 @@
         telefonia: 'var(--cat-telefonia)',
     }
 
-    onMount(async () => {
-        try {
-            gastos = await api.getGastos()
-        } catch (e) {
-            error = 'No se pudo cargar los gastos. ¿El backend está corriendo?'
-        } finally {
-            cargando = false
+    onMount(() => {
+        if (appState.gastos.length === 0) {
+            invalidar(mesActual)
         }
     })
 
     async function marcarPagado(id: string) {
         await api.marcarPagado(id)
-        gastos = gastos.map(g => g.id === id ? { ...g, pagado: true } : g)
     }
 
-    let pendientes = $derived(gastos.filter(g => !g.pagado))
-    let pagados    = $derived(gastos.filter(g =>  g.pagado))
-    let totalMes   = $derived(gastos.reduce((acc, g) => acc + g.monto, 0))
+    const gastos     = $derived(appState.gastos)
+    const cargando   = $derived(appState.cargando)
+    const error      = $derived(appState.error)
+    const pendientes = $derived(gastos.filter((g) => !g.pagado))
+    const pagados    = $derived(gastos.filter((g) =>  g.pagado))
+    const totalMes   = $derived(gastos.reduce((acc: number, g) => acc + g.monto, 0))
 </script>
 
 <div class="flex max-h-[calc(100vh-120px)] flex-col gap-4 overflow-y-auto p-4">
-    {#if cargando}
+    {#if cargando && gastos.length === 0}
         <div class="py-8 text-center text-sm text-muted-foreground">
             Cargando gastos...
         </div>
-    {:else if error}
+    {:else if error && gastos.length === 0}
         <div class="py-8 text-center text-sm text-destructive">
             {error}
         </div>
@@ -70,7 +66,7 @@
                     Pendientes
                 </h2>
                 <div class="flex flex-col gap-2">
-                    {#each pendientes as gasto}
+                    {#each pendientes as gasto (gasto.id)}
                         <div
                             class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-foreground/20"
                         >
@@ -82,7 +78,11 @@
                                 <div>
                                     <p class="text-sm font-medium">{gasto.tipo}</p>
                                     <p class="mt-0.5 text-xs text-muted-foreground">
-                                        Vence {gasto.vencimiento ?? gasto.fecha}
+                                        {#if gasto.vencimiento}
+                                            Vence {gasto.vencimiento}
+                                        {:else}
+                                            Sin fecha de vencimiento
+                                        {/if}
                                     </p>
                                 </div>
                             </div>
@@ -108,7 +108,7 @@
                     Pagados este mes
                 </h2>
                 <div class="flex flex-col gap-2">
-                    {#each pagados as gasto}
+                    {#each pagados as gasto (gasto.id)}
                         <div
                             class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 opacity-60 shadow-sm transition-opacity hover:opacity-100"
                         >

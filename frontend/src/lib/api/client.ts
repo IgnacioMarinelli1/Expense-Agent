@@ -1,5 +1,32 @@
-// URL del backend — cuando Dev 2 tenga el servidor listo, cambiás esta línea
+// URL del backend
 const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
+
+// ─── Paths que modifican la DB ────────────────────────────────────────────────
+const WRITE_PATHS = [
+    '/gastos',      // POST crear gasto
+    '/gastos/',     // PATCH marcar pagado
+    '/agente/mensaje',  // POST chat (puede crear gastos internamente)
+    '/agente/audio',    // POST audio
+    '/agente/imagen',   // POST imagen
+]
+
+function esEscritura(method: string, path: string): boolean {
+    const m = method.toUpperCase()
+    if (m === 'GET') return false
+    return WRITE_PATHS.some(p => path.startsWith(p))
+}
+
+// Importación lazy para evitar ciclos de dependencia
+async function dispararRefetch() {
+    try {
+        const { invalidar } = await import('$lib/stores/appState.svelte')
+        await invalidar()
+    } catch {
+        // silencioso — no rompe la operación principal
+    }
+}
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 type StreamHandlers = {
     onToken: (text: string) => void
@@ -7,7 +34,10 @@ type StreamHandlers = {
     onDone?: () => void
 }
 
+// ─── Request base ─────────────────────────────────────────────────────────────
+
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
+    const method = options?.method ?? 'GET'
     const res = await fetch(`${BASE_URL}${path}`, {
         headers: { 'Content-Type': 'application/json' },
         ...options
@@ -17,7 +47,14 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
         throw new Error(`Error ${res.status}: ${res.statusText}`)
     }
 
-    return res.json()
+    const data = res.json() as Promise<T>
+
+    // Dispara refetch automático tras escrituras
+    if (esEscritura(method, path)) {
+        dispararRefetch()
+    }
+
+    return data
 }
 
 async function streamRequest(path: string, options: RequestInit, handlers: StreamHandlers) {
@@ -44,7 +81,13 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
 
         if (event === 'token') handlers.onToken(data.text ?? '')
         if (event === 'error') handlers.onError?.(data.message ?? 'No pude procesar tu mensaje.')
-        if (event === 'done') handlers.onDone?.()
+        if (event === 'done') {
+            handlers.onDone?.()
+            // Dispara refetch tras streaming de escritura
+            if (esEscritura(options.method ?? 'POST', path)) {
+                dispararRefetch()
+            }
+        }
     }
 
     while (true) {
@@ -97,7 +140,6 @@ export const api = {
 
     // ── Agente ────────────────────────────────────────
 
-    // Enviar mensaje de texto al agente
     enviarMensaje(texto: string) {
         return request<{ respuesta: string }>('/agente/mensaje', {
             method: 'POST',
@@ -113,7 +155,6 @@ export const api = {
         }, handlers)
     },
 
-    // Enviar audio al agente
     async enviarAudio(blob: Blob) {
         const form = new FormData()
         form.append('audio', blob, 'grabacion.wav')
@@ -124,6 +165,7 @@ export const api = {
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
+        dispararRefetch()
         return res.json() as Promise<{ respuesta: string }>
     },
 
@@ -137,7 +179,6 @@ export const api = {
         }, handlers)
     },
 
-    // Enviar imagen al agente
     async enviarImagen(file: File) {
         const form = new FormData()
         form.append('imagen', file)
@@ -148,6 +189,7 @@ export const api = {
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
+        dispararRefetch()
         return res.json() as Promise<{ respuesta: string }>
     },
 
