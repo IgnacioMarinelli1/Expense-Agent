@@ -6,9 +6,9 @@ import re
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db.db import get_db
+from db.security import current_user_id
 
 # user_id is resolved server-side, never from model input
-_USER_ID = "demo_user"
 _PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
 
 
@@ -47,19 +47,20 @@ async def save_expense(
 
     db = get_db()
     now = datetime.utcnow()
+    user_id = current_user_id()
 
     # Dedup: build the narrowest possible query to detect an existing payment.
     # Priority: service+period (most specific) > notes+period > notes+recent window.
     if service_id and period:
-        dedup_q = {"user_id": _USER_ID, "service_id": service_id, "period": period}
+        dedup_q = {"user_id": user_id, "service_id": service_id, "period": period}
     elif notes and period:
-        dedup_q = {"user_id": _USER_ID, "amount": amount, "currency": currency,
+        dedup_q = {"user_id": user_id, "amount": amount, "currency": currency,
                    "notes": notes, "period": period}
     elif notes:
-        dedup_q = {"user_id": _USER_ID, "amount": amount, "currency": currency,
+        dedup_q = {"user_id": user_id, "amount": amount, "currency": currency,
                    "notes": notes, "created_at": {"$gte": now - timedelta(minutes=10)}}
     else:
-        dedup_q = {"user_id": _USER_ID, "amount": amount, "currency": currency,
+        dedup_q = {"user_id": user_id, "amount": amount, "currency": currency,
                    "created_at": {"$gte": now - timedelta(minutes=5)}}
 
     existing = await db["payments"].find_one(dedup_q)
@@ -71,7 +72,7 @@ async def save_expense(
         }
 
     doc = {
-        "user_id": _USER_ID,
+        "user_id": user_id,
         "amount": amount,
         "currency": currency,
         "payment_date": datetime.fromisoformat(payment_date) if payment_date else now,
@@ -120,8 +121,9 @@ async def save_service(
     db = get_db()
     normalized_name = name.strip().lower()
     now = datetime.now(timezone.utc)
+    user_id = current_user_id()
     doc: dict[str, Any] = {
-        "user_id": _USER_ID,
+        "user_id": user_id,
         "name": name.strip(),
         "normalized_name": normalized_name,
         "category": category.strip().lower(),
@@ -154,11 +156,11 @@ async def save_service(
         doc["account_number"] = account_number
 
     result = await db["services"].update_one(
-        {"user_id": _USER_ID, "normalized_name": normalized_name},
+        {"user_id": user_id, "normalized_name": normalized_name},
         {"$set": doc, "$setOnInsert": {"created_at": now}},
         upsert=True,
     )
-    saved = await db["services"].find_one({"user_id": _USER_ID, "normalized_name": normalized_name})
+    saved = await db["services"].find_one({"user_id": user_id, "normalized_name": normalized_name})
     response = {
         "status": "success",
         "service_id": str(saved["_id"]),
@@ -177,7 +179,7 @@ async def get_services(
 ) -> dict:
     """Lista servicios recurrentes/suscripciones del usuario. Filtros opcionales: category y active."""
     db = get_db()
-    query: dict[str, Any] = {"user_id": _USER_ID}
+    query: dict[str, Any] = {"user_id": current_user_id()}
     if category:
         query["category"] = category.strip().lower()
     if active is not None:
@@ -200,7 +202,7 @@ async def get_expenses(
 ) -> dict:
     """Lista los gastos del usuario. Filtros opcionales: status (pending/paid/overdue), period (YYYY-MM)."""
     db = get_db()
-    query: dict = {"user_id": _USER_ID}
+    query: dict = {"user_id": current_user_id()}
     if status: query["status"] = status
     if period: query["period"] = period
 
@@ -221,7 +223,7 @@ async def get_expense(payment_id: str) -> dict:
 
     db = get_db()
     try:
-        doc = await db["payments"].find_one({"_id": ObjectId(payment_id), "user_id": _USER_ID})
+        doc = await db["payments"].find_one({"_id": ObjectId(payment_id), "user_id": current_user_id()})
     except InvalidId:
         return {"status": "error", "error_message": f"ID inválido: {payment_id}"}
     if not doc:
@@ -237,7 +239,7 @@ async def get_monthly_summary(period: str) -> dict:
     """Resumen de gastos de un mes. period en formato YYYY-MM (ej: 2026-05)."""
     db = get_db()
     pipeline = [
-        {"$match": {"user_id": _USER_ID, "period": period}},
+        {"$match": {"user_id": current_user_id(), "period": period}},
         {"$group": {"_id": "$status", "total": {"$sum": "$amount"}, "count": {"$sum": 1}}},
         {
             "$group": {
@@ -285,12 +287,13 @@ async def save_monthly_finance(
         update["notes"] = notes
 
     db = get_db()
+    user_id = current_user_id()
     result = await db["monthly_finances"].update_one(
-        {"user_id": _USER_ID, "period": period},
+        {"user_id": user_id, "period": period},
         {"$set": update, "$setOnInsert": {"created_at": now}},
         upsert=True,
     )
-    saved = await db["monthly_finances"].find_one({"user_id": _USER_ID, "period": period})
+    saved = await db["monthly_finances"].find_one({"user_id": user_id, "period": period})
     return {
         "status": "success",
         "monthly_finance": _serialize_doc(saved),
@@ -303,7 +306,7 @@ async def get_monthly_finance(period: str) -> dict:
     if not _is_valid_period(period):
         return {"status": "error", "error_message": "El período debe tener formato YYYY-MM"}
     db = get_db()
-    doc = await db["monthly_finances"].find_one({"user_id": _USER_ID, "period": period})
+    doc = await db["monthly_finances"].find_one({"user_id": current_user_id(), "period": period})
     return {"status": "success", "period": period, "monthly_finance": _serialize_doc(doc)}
 
 
@@ -313,8 +316,9 @@ async def get_monthly_finance_summary(period: str) -> dict:
         return {"status": "error", "error_message": "El período debe tener formato YYYY-MM"}
 
     db = get_db()
-    finance_doc = await db["monthly_finances"].find_one({"user_id": _USER_ID, "period": period})
-    cursor = db["payments"].find({"user_id": _USER_ID, "period": period})
+    user_id = current_user_id()
+    finance_doc = await db["monthly_finances"].find_one({"user_id": user_id, "period": period})
+    cursor = db["payments"].find({"user_id": user_id, "period": period})
     payments = await cursor.to_list(length=1000)
 
     paid_total = 0.0

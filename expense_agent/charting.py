@@ -6,8 +6,7 @@ from typing import Any
 from uuid import uuid4
 
 from db.db import get_db
-
-_USER_ID = "demo_user"
+from db.security import current_user_id
 
 CHART_TYPES = {
     "auto",
@@ -579,7 +578,7 @@ async def generate_financial_chart(
     evolución, distribución, ranking o resúmenes visuales.
     """
     db = get_db()
-    query: dict[str, Any] = {"user_id": _USER_ID}
+    query: dict[str, Any] = {"user_id": current_user_id()}
     if status:
         query["status"] = status
     if currency:
@@ -620,7 +619,7 @@ async def get_chart_source_data(
     cuando el gráfico agrupe por categoría y las descripciones requieran criterio contable.
     """
     db = get_db()
-    query: dict[str, Any] = {"user_id": _USER_ID}
+    query: dict[str, Any] = {"user_id": current_user_id()}
     if status:
         query["status"] = status
     if currency:

@@ -14,6 +14,7 @@ override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 from google.adk.tools.mcp_tool.mcp_tool import McpTool as _McpTool
 from google.adk.tools._gemini_schema_util import _to_gemini_schema as _adk_to_gemini_schema
 from google.genai.types import FunctionDeclaration as _FunctionDeclaration
+from db.security import current_user_id
 
 def _patched_get_declaration(self):
     input_schema = self._mcp_tool.inputSchema
@@ -44,6 +45,7 @@ from .subagents import agente_diagnostico, agente_visualizacion
 load_dotenv()
 
 CURRENT_DATE = datetime.now().date().isoformat()
+CURRENT_USER_ID = current_user_id()
 
 INSTRUCTION = f"""
 # Identity
@@ -164,6 +166,7 @@ Use it for "cómo vengo con el presupuesto", "cuánto me queda", "me pasé del p
 ## MongoDB MCP tools (find, aggregate, list-collections, etc.)
 You also have direct MongoDB access via MCP tools. The database is `expense_agent_db`, collections: `payments`, `services`, `monthly_finances`, `users`, `properties`.
 Use these for complex queries that the tools above can't handle: cross-collection queries, custom aggregations, or when the user asks for raw data.
+Always filter user-owned records with `user_id: "{CURRENT_USER_ID}"`.
 Prefer the high-level tools above for standard operations. Use MCP only when needed.
 
 ## agente_diagnostico (sub-agente especializado)

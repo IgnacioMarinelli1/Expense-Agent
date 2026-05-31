@@ -17,6 +17,7 @@ from google.genai.types import Content, Part
 from expense_agent.agent import root_agent
 from expense_agent.charting import pop_pending_chart_specs
 from helpers.spreadsheet import SUPPORTED_SPREADSHEET_MIME, spreadsheet_to_text
+from db.security import current_session_id, current_user_id
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
@@ -50,9 +51,6 @@ _runner = Runner(
     app_name="expense_agent",
     session_service=_session_service,
 )
-
-SESSION_ID = "demo_session"
-USER_ID = "demo_user"
 
 _SUBAGENT_LABELS: dict[str, dict[str, str]] = {
     "agente_diagnostico": {
@@ -100,34 +98,36 @@ def _content_to_dict(content: Content) -> dict:
     }
 
 
-_remote_session_ready = False
+_remote_sessions_ready: set[tuple[str, str]] = set()
 
 
-async def _ensure_remote_session() -> None:
-    """Create the demo session on the remote ADK api_server if it doesn't exist yet."""
-    global _remote_session_ready
-    if _remote_session_ready:
+async def _ensure_remote_session(user_id: str, session_id: str) -> None:
+    """Create the configured session on the remote ADK api_server if needed."""
+    session_key = (user_id, session_id)
+    if session_key in _remote_sessions_ready:
         return
-    url = f"{AGENT_URL}/apps/agent_runtime/users/{USER_ID}/sessions"
+    url = f"{AGENT_URL}/apps/agent_runtime/users/{user_id}/sessions"
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.post(url, json={"session_id": SESSION_ID})
+            r = await client.post(url, json={"session_id": session_id})
             if r.status_code not in (200, 201, 409):
                 logger.warning("Remote session create returned %s: %s", r.status_code, r.text)
             else:
-                _remote_session_ready = True
+                _remote_sessions_ready.add(session_key)
     except Exception as exc:
         logger.warning("Remote session init failed (will proceed anyway): %s", exc)
 
 
 async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"):
     """Proxy streaming to Cloud Run ADK api_server, translating events to frontend SSE."""
-    await _ensure_remote_session()
+    user_id = current_user_id()
+    session_id = current_session_id(user_id)
+    await _ensure_remote_session(user_id, session_id)
 
     body = {
         "app_name": "agent_runtime",
-        "user_id": USER_ID,
-        "session_id": SESSION_ID,
+        "user_id": user_id,
+        "session_id": session_id,
         "new_message": _content_to_dict(content),
     }
 
@@ -214,7 +214,7 @@ async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"
                                 yield _thinking_sse(fr["name"], "done")
 
                         if error:
-                            yield _sse("error", {"message": error})
+                            yield _sse("error", {"message": _safe_agent_error_message(error, modality_label)})
                             return
                         if turn_complete:
                             yield _sse("done", {})
@@ -235,17 +235,17 @@ class MessageRequest(BaseModel):
     text: str
 
 
-async def _ensure_session():
+async def _ensure_session(user_id: str, session_id: str):
     session = await _session_service.get_session(
         app_name="expense_agent",
-        user_id=USER_ID,
-        session_id=SESSION_ID,
+        user_id=user_id,
+        session_id=session_id,
     )
     if session is None:
         await _session_service.create_session(
             app_name="expense_agent",
-            user_id=USER_ID,
-            session_id=SESSION_ID,
+            user_id=user_id,
+            session_id=session_id,
         )
 
 
@@ -301,15 +301,21 @@ def _agent_error_message(exc: Exception, modality_label: str) -> str | None:
     return None
 
 
+def _safe_agent_error_message(error: str, modality_label: str) -> str:
+    return _agent_error_message(Exception(error), modality_label) or "No pude procesar tu mensaje."
+
+
 async def _run_agent(content: Content, modality_label: str = "mensaje") -> str | None:
-    await _ensure_session()
+    user_id = current_user_id()
+    session_id = current_session_id(user_id)
+    await _ensure_session(user_id, session_id)
 
     for attempt in range(AGENT_MAX_ATTEMPTS):
         try:
             response = ""
             async for event in _runner.run_async(
-                user_id=USER_ID,
-                session_id=SESSION_ID,
+                user_id=user_id,
+                session_id=session_id,
                 new_message=content,
             ):
                 if event.is_final_response() and event.content and event.content.parts:
@@ -334,15 +340,17 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
             yield chunk
         return
 
-    await _ensure_session()
+    user_id = current_user_id()
+    session_id = current_session_id(user_id)
+    await _ensure_session(user_id, session_id)
     run_config = RunConfig(streaming_mode=StreamingMode.SSE)
     try:
         total_streamed = ""
         turn_boundary_pending = False
         emitted_chart_ids: set[str] = set()
         async for event in _runner.run_async(
-            user_id=USER_ID,
-            session_id=SESSION_ID,
+            user_id=user_id,
+            session_id=session_id,
             new_message=content,
             run_config=run_config,
         ):
@@ -401,7 +409,7 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
                 yield chart_event
 
             if event.error_message:
-                yield _sse("error", {"message": event.error_message})
+                yield _sse("error", {"message": _safe_agent_error_message(event.error_message, modality_label)})
                 return
             if event.turn_complete:
                 yield _sse("done", {})

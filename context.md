@@ -249,7 +249,7 @@ El agente usa esta colección para registrar frases como "mi sueldo este mes es 
 ### `users`, `properties`
 Existen como soporte para una etapa posterior. Hoy no son el centro del flujo.
 
-**`user_id` fijo**: `"demo_user"` en tools y rutas compat. Es intencional por ahora: todavía no hay login ni multiusuario.
+**`user_id` de despliegue**: se resuelve server-side con `EXPENSE_AGENT_USER_ID` y cae a `"demo_user"` solo para desarrollo/demo local. Los endpoints no deben aceptar `user_id` del cliente para filtrar datos privados.
 
 ---
 
@@ -365,7 +365,7 @@ MDB_MCP_CONNECTION_STRING=<MONGO_URI>
 
 - **Versión usada/local**: `google-adk==2.1.0`
 - **Sesiones**: `SqliteSessionService("sessions.db")` — si hay problemas de compatibilidad de historial (ej: cambio de modelo), borrar `sessions.db`
-- **Runner**: singleton en `routes/agent.py`, sesión fija `SESSION_ID="demo_session"`, `USER_ID="demo_user"`
+- **Runner**: singleton en `routes/agent.py`; usuario y sesión salen de `EXPENSE_AGENT_USER_ID`/hash server-side para evitar confiar en tenant IDs enviados por el cliente
 - **Streaming**: `RunConfig(streaming_mode=StreamingMode.SSE)` + `PROGRESSIVE_SSE_STREAMING` feature habilitada por defecto en ADK 2.1.0
 - **`is_final_response()`** retorna `True` cuando: no hay function calls, no hay function responses, `partial=False`, no hay trailing code execution
 
@@ -396,7 +396,7 @@ result = await calculate_inflation_coefficient("2026-01", "2026-04")
 # → {"coefficient": 1.084595, "inflation_pct": 8.46, ...}
 ```
 
-API pública, sin auth, sin rate limiting estricto. Responde en ~200ms.
+API pública externa, sin credenciales propias de la app y sin rate limiting estricto. Responde en ~200ms.
 
 ---
 
@@ -435,7 +435,7 @@ El `_image_content` en `routes/agent.py` detecta el MIME y desvía a `spreadshee
 
 ## Estado Actual y Deuda Conocida
 
-- No hay autenticación ni multiusuario; `demo_user` es deliberado.
+- No hay login ni multiusuario real; en Cloud Run los servicios se despliegan cerrados por IAM y el tenant de app se configura server-side con `EXPENSE_AGENT_USER_ID`.
 - La categorización del frontend compat es heurística por texto (`luz`, `gas`, `agua`, etc.).
 - El dashboard todavía no implementa gráficos ni calendario real.
 - Los gráficos generados por agente viven en el chat; el dashboard sigue separado y básico.

@@ -3,6 +3,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from db.db import get_db, close_connection
 from helpers.db_helpers import safe_create_collection
+from db.security import cors_allowed_origins
 from routes.health import router as health_router
 from routes.summary import router as summary_router
 from routes.payments import router as payments_router
@@ -25,7 +26,7 @@ app = FastAPI(title="Expense Agent API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=cors_allowed_origins(),
     allow_methods=["*"],
     allow_headers=["*"],
 )

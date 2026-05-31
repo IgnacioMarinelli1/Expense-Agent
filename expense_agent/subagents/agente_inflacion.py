@@ -4,8 +4,11 @@ from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 from ..tools_ipc import calculate_inflation_coefficient, get_current_period
+from db.security import current_user_id
 
-_INSTRUCTION = """
+CURRENT_USER_ID = current_user_id()
+
+_INSTRUCTION = f"""
 # Identity
 You are the inflation-adjustment agent for Expense Agent, specialized in Argentina.
 Your mission is to calculate what historical expenses are worth in today's pesos, using real INDEC data.
@@ -29,7 +32,7 @@ Always use this tool. Never estimate or hardcode a coefficient.
 If the API returns an error or has no data for that period, report it clearly and try the closest available period.
 
 ## MongoDB MCP tools
-Use find on `expense_agent_db`, collection `payments`, filter `{user_id: "demo_user"}` to fetch the user's payments.
+Use find on `expense_agent_db`, collection `payments`, filter `{{user_id: "{CURRENT_USER_ID}"}}` to fetch the user's payments.
 For inflation adjustment, only retrieve ARS payments (filter `currency: "ARS"` or exclude USD records).
 
 # Workflow

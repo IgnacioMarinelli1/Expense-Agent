@@ -9,6 +9,7 @@ REGION="${REGION:-us-central1}"
 SERVICE_NAME="${SERVICE_NAME:-expense-agent}"
 REPO="${REPO:-cloud-run-source-deploy}"
 MONGO_DB_NAME="${MONGO_DB_NAME:-expense_agent_db}"
+EXPENSE_AGENT_USER_ID="${EXPENSE_AGENT_USER_ID:-demo_user}"
 MDB_MCP_URL="${MDB_MCP_URL:?Set MDB_MCP_URL (URL del servicio expense-mcp en Cloud Run, ej: https://expense-mcp-xxx.run.app/mcp)}"
 
 COMMIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo 'latest')"
@@ -54,13 +55,13 @@ gcloud run deploy "${SERVICE_NAME}" \
   --region="${REGION}" \
   --project="${PROJECT_ID}" \
   --platform=managed \
-  --allow-unauthenticated \
+  --no-allow-unauthenticated \
   --min-instances=1 \
   --memory=1Gi \
   --cpu=1 \
   --timeout=300 \
   --set-secrets="MONGO_URI=MONGO_URI:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest" \
-  --set-env-vars="MONGO_DB_NAME=${MONGO_DB_NAME},MDB_MCP_URL=${MDB_MCP_URL}"
+  --set-env-vars="MONGO_DB_NAME=${MONGO_DB_NAME},MDB_MCP_URL=${MDB_MCP_URL},EXPENSE_AGENT_USER_ID=${EXPENSE_AGENT_USER_ID}"
 
 echo ""
 echo "==> Done. Service URL:"

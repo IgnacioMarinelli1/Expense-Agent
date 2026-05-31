@@ -6,8 +6,11 @@ from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnecti
 
 from .agente_inflacion import agente_inflacion
 from .agente_cuotas import agente_cuotas
+from db.security import current_user_id
 
-_INSTRUCTION = """
+CURRENT_USER_ID = current_user_id()
+
+_INSTRUCTION = f"""
 # Identity
 You are the financial diagnostic agent for Expense Agent.
 Your mission is to produce a complete, actionable analysis of the user's financial health.
@@ -30,7 +33,7 @@ Invoke it to get the total monthly commitment in ARS and USD.
 
 ## MongoDB MCP tools
 Use find and aggregate on expense_agent_db for:
-- Reading payments from the `payments` collection (always filter by `user_id: "demo_user"`).
+- Reading payments from the `payments` collection (always filter by `user_id: "{CURRENT_USER_ID}"`).
 - Reading salary and budget from `monthly_finances`.
 - Custom groupings by category, period, or status that the sub-agents don't cover.
 

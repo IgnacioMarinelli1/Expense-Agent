@@ -5,10 +5,10 @@ from bson import ObjectId
 from bson.errors import InvalidId
 
 from db.db import get_db
+from db.security import current_user_id
 
 router = APIRouter(tags=["frontend"])
 
-DEFAULT_USER = "demo_user"
 CURRENT_YEAR = datetime.now().year
 
 
@@ -75,7 +75,7 @@ def _to_expense(doc: dict) -> dict:
 @router.get("/expenses")
 async def get_expenses(month: Optional[str] = Query(None)):
     db = get_db()
-    query: dict = {"user_id": DEFAULT_USER}
+    query: dict = {"user_id": current_user_id()}
     if month:
         query["period"] = month
     cursor = db["payments"].find(query).sort("payment_date", -1)
@@ -87,7 +87,7 @@ async def get_expenses(month: Optional[str] = Query(None)):
 async def create_expense(body: dict):
     db = get_db()
     doc = {
-        "user_id": DEFAULT_USER,
+        "user_id": current_user_id(),
         "amount": float(body.get("amount", 0)),
         "currency": "ARS",
         "notes": body.get("type", ""),
@@ -113,7 +113,7 @@ async def mark_paid(expense_id: str):
     except InvalidId:
         raise HTTPException(status_code=400, detail="ID inválido")
     result = await db["payments"].update_one(
-        {"_id": oid, "user_id": DEFAULT_USER},
+        {"_id": oid, "user_id": current_user_id()},
         {"$set": {"status": "paid"}},
     )
     if result.matched_count == 0:
@@ -124,7 +124,7 @@ async def mark_paid(expense_id: str):
 @router.get("/summary")
 async def get_summary(month: Optional[str] = Query(None)):
     db = get_db()
-    match: dict = {"user_id": DEFAULT_USER}
+    match: dict = {"user_id": current_user_id()}
     if month:
         match["period"] = month
     pipeline = [

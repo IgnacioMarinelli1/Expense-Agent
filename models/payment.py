@@ -4,7 +4,7 @@ from datetime import datetime
 
 
 class PaymentCreate(BaseModel):
-    user_id: str
+    user_id: Optional[str] = None
     service_id: Optional[str] = None
     property_id: Optional[str] = None
     amount: float

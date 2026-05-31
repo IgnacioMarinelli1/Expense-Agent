@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request, Query
 from typing import Optional
+from db.security import current_user_id
 
 router = APIRouter(prefix="/payments/summary", tags=["summary"])
 
@@ -7,10 +8,10 @@ router = APIRouter(prefix="/payments/summary", tags=["summary"])
 @router.get("/")
 async def get_summary(
     request: Request,
-    user_id: str = Query(...),
     period: Optional[str] = Query(None, description="Format: YYYY-MM, e.g. 2026-05"),
 ):
     db = request.app.state.db
+    user_id = current_user_id()
 
     match: dict = {"user_id": user_id}
     if period:

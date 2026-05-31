@@ -4,6 +4,7 @@ from bson.errors import InvalidId
 from models.payment import PaymentCreate, PaymentUpdate
 from datetime import datetime
 from typing import Optional
+from db.security import current_user_id
 
 router = APIRouter(prefix="/payments", tags=["payments"])
 
@@ -24,6 +25,7 @@ def _object_id(value: str) -> ObjectId:
 async def create_payment(body: PaymentCreate, request: Request):
     db = request.app.state.db
     doc = body.model_dump(exclude_none=True)
+    doc["user_id"] = current_user_id()
     doc["created_at"] = datetime.utcnow()
     result = await db["payments"].insert_one(doc)
     created = await db["payments"].find_one({"_id": result.inserted_id})
@@ -33,16 +35,14 @@ async def create_payment(body: PaymentCreate, request: Request):
 @router.get("/")
 async def list_payments(
     request: Request,
-    user_id: Optional[str] = Query(None),
     property_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     from_date: Optional[datetime] = Query(None),
     to_date: Optional[datetime] = Query(None),
 ):
     db = request.app.state.db
-    query: dict = {}
-    if user_id:
-        query["user_id"] = user_id
+    active_user_id = current_user_id()
+    query: dict = {"user_id": active_user_id}
     if property_id:
         query["property_id"] = property_id
     if status:
@@ -62,7 +62,9 @@ async def list_payments(
 @router.get("/{payment_id}")
 async def get_payment(payment_id: str, request: Request):
     db = request.app.state.db
-    doc = await db["payments"].find_one({"_id": _object_id(payment_id)})
+    doc = await db["payments"].find_one(
+        {"_id": _object_id(payment_id), "user_id": current_user_id()}
+    )
     if not doc:
         raise HTTPException(status_code=404, detail="Payment not found")
     return _serialize(doc)
@@ -75,18 +77,22 @@ async def update_payment(payment_id: str, body: PaymentUpdate, request: Request)
     if not update:
         raise HTTPException(status_code=400, detail="No fields to update")
     result = await db["payments"].update_one(
-        {"_id": _object_id(payment_id)}, {"$set": update}
+        {"_id": _object_id(payment_id), "user_id": current_user_id()}, {"$set": update}
     )
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Payment not found")
-    doc = await db["payments"].find_one({"_id": _object_id(payment_id)})
+    doc = await db["payments"].find_one(
+        {"_id": _object_id(payment_id), "user_id": current_user_id()}
+    )
     return _serialize(doc)
 
 
 @router.delete("/{payment_id}")
 async def delete_payment(payment_id: str, request: Request):
     db = request.app.state.db
-    result = await db["payments"].delete_one({"_id": _object_id(payment_id)})
+    result = await db["payments"].delete_one(
+        {"_id": _object_id(payment_id), "user_id": current_user_id()}
+    )
     if result.deleted_count == 0:
         raise HTTPException(status_code=404, detail="Payment not found")
     return {"deleted": payment_id}

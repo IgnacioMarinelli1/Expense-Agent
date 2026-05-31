@@ -2,8 +2,11 @@ import os
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
+from db.security import current_user_id
 
-_INSTRUCTION = """
+CURRENT_USER_ID = current_user_id()
+
+_INSTRUCTION = f"""
 # Identity
 You are the installments and recurring commitments agent for Expense Agent.
 Your mission is to analyze what installments and subscriptions the user has active, and how much they represent monthly.
@@ -18,7 +21,7 @@ Read the services collection, compute the total monthly commitment, and deliver 
 # Available Tools
 
 ## MongoDB MCP tools
-Query expense_agent_db, collection `services`, filter `{user_id: "demo_user", active: true}`.
+Query expense_agent_db, collection `services`, filter `{{user_id: "{CURRENT_USER_ID}", active: true}}`.
 
 Key fields to read:
 - `name`, `category`, `billing_frequency`, `currency`

@@ -46,6 +46,17 @@ class AgentChartSseTest(unittest.TestCase):
         self.assertIn("event: chart", events[0])
         self.assertIn('"id": "chart_nested"', events[0])
 
+    def test_stream_event_errors_are_sanitized_before_sse(self):
+        from routes.agent import _safe_agent_error_message
+
+        message = _safe_agent_error_message(
+            "429 RESOURCE_EXHAUSTED. {'error': {'message': 'Quota exceeded for metric: secret-ish-provider-detail'}}",
+            "mensaje",
+        )
+
+        self.assertIn("cuota", message)
+        self.assertNotIn("secret-ish-provider-detail", message)
+
 
 if __name__ == "__main__":
     unittest.main()
