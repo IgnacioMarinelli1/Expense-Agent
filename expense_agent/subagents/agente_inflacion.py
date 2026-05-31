@@ -1,8 +1,7 @@
 import os
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool import MCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from mcp import StdioServerParameters
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 from ..tools_ipc import calculate_inflation_coefficient, get_current_period
 
@@ -71,12 +70,8 @@ agente_inflacion = LlmAgent(
         calculate_inflation_coefficient,
         get_current_period,
         MCPToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="npx",
-                    args=["-y", "mongodb-mcp-server"],
-                    env={"MDB_MCP_CONNECTION_STRING": os.getenv("MONGO_URI", "")},
-                )
+            connection_params=StreamableHTTPConnectionParams(
+                url=os.getenv("MDB_MCP_URL", "http://localhost:8081/mcp"),
             )
         ),
     ],

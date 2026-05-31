@@ -18,6 +18,7 @@ Expense Agent, hoy presentado en la UI como **Al Día**, es un asistente contabl
 | Frontend | SvelteKit 5 (runes mode) + Tailwind |
 | Gráficos | Apache ECharts + ECharts GL |
 | Sesiones | SQLite (`sessions.db`) |
+| Spreadsheets | `openpyxl` (xlsx) + stdlib `csv` |
 
 ---
 
@@ -54,6 +55,13 @@ Expense-Agent/
 ├── sessions.db                      # SQLite de sesiones ADK (auto-generado)
 ├── requirements.txt                  # Dependencias Python, ADK fijado en 2.1.0
 │
+├── agent_runtime/
+│   ├── __init__.py                  # Wrapper importable para Agent Engine
+│   ├── agent.py                     # Exporta root_agent sin montar FastAPI
+│   └── requirements.txt             # Dependencias agent-only para Agent Engine
+│   └── expense_agent -> ../expense_agent
+│   └── db -> ../db                  # Enlaces para que el staging de ADK sea autocontenido
+│
 ├── expense_agent/
 │   ├── agent.py                     # Root agent (LlmAgent) + override de features
 │   ├── tools.py                     # Tools del agente raíz (gastos, servicios, presupuesto, sueldo)
@@ -67,7 +75,7 @@ Expense-Agent/
 │   └── charting.py                  # Tool y builder de ChartSpec seguro
 │
 ├── routes/
-│   ├── agent.py                     # /agent/* endpoints (SSE streaming)
+│   ├── agent.py                     # /agent/* endpoints (SSE streaming) + spreadsheet parsing
 │   ├── frontend_compat.py           # /expenses, /summary (para el dashboard)
 │   ├── payments.py                  # CRUD de pagos
 │   ├── users.py                     # CRUD de usuarios
@@ -78,7 +86,8 @@ Expense-Agent/
 │   ├── db.py                        # Motor client singleton (get_db, get_client)
 │   └── schema.py                    # Definiciones de colecciones
 ├── helpers/
-│   └── db_helpers.py                 # Creación segura de colecciones
+│   ├── db_helpers.py                # Creación segura de colecciones
+│   └── spreadsheet.py               # Parseo CSV/xlsx → texto para el agente
 ├── tests/
 │   └── test_frontend_api_params.py   # Check de compat frontend/backend
 │
@@ -93,6 +102,32 @@ Expense-Agent/
 │       └── components/
 │           ├── ThinkingSteps.svelte # Componente de thinking steps
 │           └── ChatChart.svelte     # Render ECharts/ECharts GL en chat
+```
+
+---
+
+## Targets de despliegue
+
+El proyecto queda preparado para dos despliegues separados:
+
+- **Cloud Run API**: `main.py` + `routes/*`. Mantiene FastAPI, endpoints SSE, carga de audio/imagen/PDF/CSV/Excel y compatibilidad con el frontend.
+- **Agent Engine / Agent Builder**: `agent_runtime/` exporta `root_agent` y contiene enlaces a `expense_agent/` y `db/` para que el staging de ADK copie el agente y sus dependencias internas sin montar FastAPI.
+
+En esta etapa FastAPI todavía usa el `Runner` local de ADK en `routes/agent.py`. La integración remota FastAPI → Agent Engine queda como paso posterior, después de validar el despliegue agent-only.
+
+Preflight agent-only:
+```bash
+export PROJECT_ID=<google-cloud-project>
+export GOOGLE_CLOUD_LOCATION=us-central1
+export GOOGLE_GENAI_USE_VERTEXAI=TRUE
+
+./venv/bin/adk deploy agent_engine \
+  --project="$PROJECT_ID" \
+  --region="$GOOGLE_CLOUD_LOCATION" \
+  --display_name="Al Dia Expense Agent" \
+  --validate-agent-import \
+  --requirements_file=agent_runtime/requirements.txt \
+  agent_runtime
 ```
 
 ---
@@ -252,7 +287,8 @@ Usa Svelte 5 **runes mode** (`$state`, `$effect`, `$props`). No usar sintaxis Sv
 type TraceStep = { agent: string; label: string; status: 'running' | 'done' | 'error' }
 type Message = {
   id: number; type: 'usuario' | 'agente'; text: string;
-  loading?: boolean; fileUrl?: string; fileType?: 'image' | 'pdf';
+  loading?: boolean; fileUrl?: string; fileType?: 'image' | 'pdf' | 'file';
+  fileName?: string;   // nombre del archivo para fileType === 'file' (CSV/Excel)
   traces?: TraceStep[]; charts?: ChartSpec[]
 }
 ```
@@ -269,6 +305,7 @@ type Message = {
 **Media input**:
 - Audio: `MediaRecorder` captura audio del navegador, se convierte a WAV en cliente y se envía a `/agent/audio/stream`.
 - Imagen/PDF: se previsualiza en el chat y se envía a `/agent/image/stream`.
+- CSV/Excel (.csv, .xlsx, .xls): se envía a `/agent/image/stream`; el backend lo parsea a texto antes de mandarlo al modelo (Gemini no acepta estos MIME nativamente). Se muestra el nombre del archivo en el chat en vez de preview visual.
 
 **Gráficos**:
 - `ChatChart.svelte` carga `echarts` y `echarts-gl` solo en cliente.
@@ -291,6 +328,8 @@ type StreamHandlers = {
 ## MCPToolset — MongoDB MCP
 
 El `mongodb-mcp-server` se lanza via `npx` desde cada `MCPToolset` configurado en el agente raíz y subagentes.
+
+Riesgo de despliegue: Agent Engine debe poder ejecutar `npx mongodb-mcp-server`. Si el runtime no trae Node/npm disponibles, habrá que resolver ese empaquetado o adaptar el MCP para ese entorno. Cloud Run puede cubrirlo con una imagen Docker que incluya Python + Node.
 
 En código se mapea `MONGO_URI` a la variable esperada por el proceso MCP:
 ```
@@ -374,6 +413,26 @@ Dashboard básico para el mes actual. Consume `GET /summary?month=YYYY-MM`. Tien
 
 ---
 
+## CSV/Excel — Parseo de Spreadsheets
+
+`helpers/spreadsheet.py` convierte archivos tabulares a texto markdown para el agente.
+
+```python
+from helpers.spreadsheet import SUPPORTED_SPREADSHEET_MIME, spreadsheet_to_text
+
+text = spreadsheet_to_text(data, "text/csv", "gastos_mayo.csv")
+# → "Archivo: gastos_mayo.csv\nFecha | Descripción | Monto\n--- | --- | ---\n..."
+```
+
+- **CSV**: decodifica UTF-8, usa stdlib `csv.reader`
+- **Excel (.xlsx)**: usa `openpyxl` en modo read-only y data-only, itera todas las hojas
+- **Límite**: 300 filas por hoja (suficiente para casos de uso esperados)
+- Gemini no acepta `text/csv` ni MIME de Excel como `Part.from_bytes` — siempre hay que convertir a texto
+
+El `_image_content` en `routes/agent.py` detecta el MIME y desvía a `spreadsheet_to_text` antes de llegar a la rama de `Part.from_bytes`.
+
+---
+
 ## Estado Actual y Deuda Conocida
 
 - No hay autenticación ni multiusuario; `demo_user` es deliberado.
@@ -395,5 +454,5 @@ Dashboard básico para el mes actual. Consume `GET /summary?month=YYYY-MM`. Tien
   1. Arquitectura multi-agente real (no solo chatbot)
   2. Thinking steps visibles en UI durante la delegación
   3. Ajuste por inflación con datos reales del INDEC (único a Argentina)
-  4. Soporte de voz, imagen y PDF además de texto
+  4. Soporte de voz, imagen, PDF, CSV y Excel además de texto
 - **Target**: persona física / familia argentina

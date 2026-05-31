@@ -2,8 +2,7 @@ import os
 from google.adk.agents import LlmAgent
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from mcp import StdioServerParameters
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 from .agente_inflacion import agente_inflacion
 from .agente_cuotas import agente_cuotas
@@ -76,22 +75,22 @@ Good examples:
 - Do not explain which sub-agent you called. Just present the results.
 - If data is insufficient for a section, say it in one line and move on.
 - Keep the total response under 400 words unless the data genuinely warrants more detail.
+- CRITICAL: You do NOT have a run_code, execute_code, or code_interpreter tool. Do all arithmetic inline in your response text — never try to call a code execution tool.
 """
+
+from ..schema_fix import strip_schemas_callback as _strip_schemas_callback
 
 agente_diagnostico = LlmAgent(
     model=os.getenv("EXPENSE_AGENT_MODEL", "gemini-2.5-flash"),
     name="agente_diagnostico",
     instruction=_INSTRUCTION,
+    before_model_callback=_strip_schemas_callback,
     tools=[
         AgentTool(agent=agente_inflacion),
         AgentTool(agent=agente_cuotas),
         MCPToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="npx",
-                    args=["-y", "mongodb-mcp-server"],
-                    env={"MDB_MCP_CONNECTION_STRING": os.getenv("MONGO_URI", "")},
-                )
+            connection_params=StreamableHTTPConnectionParams(
+                url=os.getenv("MDB_MCP_URL", "http://localhost:8081/mcp"),
             )
         ),
     ],

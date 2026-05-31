@@ -429,25 +429,39 @@ async def generate_custom_chart(
     title: str,
     mode: str,
     chart_type: str,
-    option: dict[str, Any],
+    option: str,
     subtitle: str = "Generado por agente de visualización",
     insights: list[str] = None,
-    source: dict[str, Any] = None,
+    source: str = None,
 ) -> dict[str, Any]:
     """Genera un ChartSpec desde opciones completas de ECharts creadas por el agente.
 
     Usar cuando el agente necesite libertad total de diseño: datasets,
     múltiples series, encodings, leyendas, colores, grids, 3D, tooltips o
     composiciones que `generate_financial_chart` no cubre.
+
+    IMPORTANTE: `option` debe ser un JSON string con las opciones ECharts.
+    `source` debe ser un JSON string o null.
     """
+    import json as _json
+    try:
+        option_dict = _json.loads(option) if isinstance(option, str) else option
+    except Exception:
+        return {"status": "error", "error_message": "option debe ser un JSON string válido"}
+    source_dict = None
+    if source:
+        try:
+            source_dict = _json.loads(source) if isinstance(source, str) else source
+        except Exception:
+            source_dict = None
     result = build_custom_chart_spec(
         title=title,
         mode=mode,
         chart_type=chart_type,
-        option=option,
+        option=option_dict,
         subtitle=subtitle,
         insights=insights,
-        source=source,
+        source=source_dict,
     )
     if result.get("status") == "success" and isinstance(result.get("chart_spec"), dict):
         queue_pending_chart_spec(result["chart_spec"])
@@ -558,7 +572,6 @@ async def generate_financial_chart(
     currency: str = None,
     theme: str = "auto",
     limit: int = 12,
-    category_overrides: dict[str, str] = None,
 ) -> dict[str, Any]:
     """Genera un ChartSpec interactivo para visualizar gastos del usuario.
 
@@ -588,7 +601,6 @@ async def generate_financial_chart(
         currency=currency,
         theme=theme,
         limit=limit,
-        category_overrides=category_overrides,
     )
     if result.get("status") == "success" and isinstance(result.get("chart_spec"), dict):
         queue_pending_chart_spec(result["chart_spec"])

@@ -5,10 +5,29 @@ from google.adk.agents import LlmAgent
 from google.adk.features import FeatureName, override_feature_enabled
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from mcp import StdioServerParameters
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
+
+# Patch McpTool (the real class, not the deprecated MCPTool wrapper) to always
+# use _to_gemini_schema which strips additionalProperties that Gemini rejects.
+from google.adk.tools.mcp_tool.mcp_tool import McpTool as _McpTool
+from google.adk.tools._gemini_schema_util import _to_gemini_schema as _adk_to_gemini_schema
+from google.genai.types import FunctionDeclaration as _FunctionDeclaration
+
+def _patched_get_declaration(self):
+    input_schema = self._mcp_tool.inputSchema
+    if input_schema:
+        return _FunctionDeclaration(
+            name=self.name,
+            description=self.description,
+            parameters=_adk_to_gemini_schema(input_schema),
+        )
+    return _FunctionDeclaration(name=self.name, description=self.description)
+
+_McpTool._get_declaration = _patched_get_declaration
+
+from .schema_fix import strip_schemas_callback as _strip_schemas_callback
 from .tools import (
     save_expense,
     save_service,
@@ -307,6 +326,7 @@ root_agent = LlmAgent(
     model=_resolve_model(),
     name="expense_agent",
     instruction=INSTRUCTION,
+    before_model_callback=_strip_schemas_callback,
     tools=[
         save_expense,
         save_service,
@@ -318,12 +338,8 @@ root_agent = LlmAgent(
         get_monthly_finance,
         get_monthly_finance_summary,
         MCPToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="npx",
-                    args=["-y", "mongodb-mcp-server"],
-                    env={"MDB_MCP_CONNECTION_STRING": os.getenv("MONGO_URI", "")},
-                )
+            connection_params=StreamableHTTPConnectionParams(
+                url=os.getenv("MDB_MCP_URL", "http://localhost:8081/mcp"),
             )
         ),
         AgentTool(agent=agente_diagnostico),

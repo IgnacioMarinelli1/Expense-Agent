@@ -1,7 +1,10 @@
 import asyncio
+import base64
 import json
 import logging
+import os
 
+import httpx
 from fastapi import APIRouter, UploadFile, File
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -13,9 +16,14 @@ from google.genai.types import Content, Part
 
 from expense_agent.agent import root_agent
 from expense_agent.charting import pop_pending_chart_specs
+from helpers.spreadsheet import SUPPORTED_SPREADSHEET_MIME, spreadsheet_to_text
 
 router = APIRouter(prefix="/agent", tags=["agent"])
 logger = logging.getLogger(__name__)
+
+# When set, all streaming runs are proxied to the remote Cloud Run agent service.
+# When unset, the agent runs in-process (local dev mode).
+AGENT_URL = os.getenv("AGENT_URL", "").rstrip("/")
 
 AGENT_MAX_ATTEMPTS = 2
 SUPPORTED_AUDIO_TYPES = {
@@ -66,7 +74,162 @@ _SUBAGENT_LABELS: dict[str, dict[str, str]] = {
 }
 _SUBAGENT_NAMES = set(_SUBAGENT_LABELS.keys())
 _CHART_TOOL_NAME = "generate_financial_chart"
+_CHART_TOOL_NAMES = {"generate_financial_chart", "generate_custom_chart"}
 
+# ---------------------------------------------------------------------------
+# Remote proxy helpers (used when AGENT_URL is set)
+# ---------------------------------------------------------------------------
+
+def _part_to_dict(part) -> dict:
+    """Serialize a google.genai Part to a plain dict suitable for JSON."""
+    if getattr(part, "text", None) is not None:
+        return {"text": part.text}
+    inline = getattr(part, "inline_data", None)
+    if inline is not None:
+        data = inline.data
+        if isinstance(data, bytes):
+            data = base64.b64encode(data).decode()
+        return {"inline_data": {"mime_type": inline.mime_type, "data": data}}
+    return {}
+
+
+def _content_to_dict(content: Content) -> dict:
+    return {
+        "role": content.role or "user",
+        "parts": [d for d in (_part_to_dict(p) for p in (content.parts or [])) if d],
+    }
+
+
+_remote_session_ready = False
+
+
+async def _ensure_remote_session() -> None:
+    """Create the demo session on the remote ADK api_server if it doesn't exist yet."""
+    global _remote_session_ready
+    if _remote_session_ready:
+        return
+    url = f"{AGENT_URL}/apps/agent_runtime/users/{USER_ID}/sessions"
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            r = await client.post(url, json={"session_id": SESSION_ID})
+            if r.status_code not in (200, 201, 409):
+                logger.warning("Remote session create returned %s: %s", r.status_code, r.text)
+            else:
+                _remote_session_ready = True
+    except Exception as exc:
+        logger.warning("Remote session init failed (will proceed anyway): %s", exc)
+
+
+async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"):
+    """Proxy streaming to Cloud Run ADK api_server, translating events to frontend SSE."""
+    await _ensure_remote_session()
+
+    body = {
+        "app_name": "agent_runtime",
+        "user_id": USER_ID,
+        "session_id": SESSION_ID,
+        "new_message": _content_to_dict(content),
+    }
+
+    total_streamed = ""
+    turn_boundary_pending = False
+    emitted_chart_ids: set[str] = set()
+
+    try:
+        async with httpx.AsyncClient(
+            timeout=httpx.Timeout(180.0, connect=10.0)
+        ) as client:
+            async with client.stream("POST", f"{AGENT_URL}/run_sse", json=body) as resp:
+                try:
+                    async for line in resp.aiter_lines():
+                        if not line.startswith("data: "):
+                            continue
+                        raw = line[6:].strip()
+                        if not raw or raw == "[DONE]":
+                            continue
+                        try:
+                            event = json.loads(raw)
+                        except json.JSONDecodeError:
+                            continue
+
+                        parts = (event.get("content") or {}).get("parts") or []
+                        text = "".join(p.get("text") or "" for p in parts if "text" in p)
+
+                        # ADK 2.x serializes to camelCase; support both conventions
+                        fc_parts = [
+                            p.get("functionCall") or p.get("function_call")
+                            for p in parts
+                            if "functionCall" in p or "function_call" in p
+                        ]
+                        fr_parts = [
+                            p.get("functionResponse") or p.get("function_response")
+                            for p in parts
+                            if "functionResponse" in p or "function_response" in p
+                        ]
+
+                        # ADK may use camelCase or snake_case for these fields
+                        is_final = event.get("is_final_response") or event.get("isFinalResponse", False)
+                        turn_complete = event.get("turn_complete") or event.get("turnComplete", False)
+                        error = event.get("error_message") or event.get("errorMessage")
+
+                        if fc_parts:
+                            for fc in fc_parts:
+                                if fc and fc.get("name") in _SUBAGENT_NAMES:
+                                    yield _thinking_sse(fc["name"], "running")
+                            turn_boundary_pending = True
+                        elif text:
+                            if is_final:
+                                if not total_streamed:
+                                    total_streamed = text
+                                    yield _sse("token", {"text": text})
+                                elif text.startswith(total_streamed):
+                                    remainder = text[len(total_streamed):]
+                                    if remainder:
+                                        total_streamed += remainder
+                                        yield _sse("token", {"text": remainder})
+                                turn_boundary_pending = True
+                            else:
+                                if turn_boundary_pending and total_streamed:
+                                    yield _sse("token", {"text": "\n\n"})
+                                    total_streamed += "\n\n"
+                                    turn_boundary_pending = False
+                                total_streamed += text
+                                yield _sse("token", {"text": text})
+
+                        for fr in fr_parts:
+                            if not fr:
+                                continue
+                            chart_payload = None
+                            if fr.get("name") in _CHART_TOOL_NAMES:
+                                resp_data = fr.get("response", {})
+                                if isinstance(resp_data, dict) and resp_data.get("status") == "success":
+                                    chart_payload = resp_data.get("chart_spec")
+                            if chart_payload and isinstance(chart_payload, dict):
+                                chart_id = chart_payload.get("id")
+                                if chart_id not in emitted_chart_ids:
+                                    if chart_id:
+                                        emitted_chart_ids.add(chart_id)
+                                    yield _sse("chart", chart_payload)
+                            if fr.get("name") in _SUBAGENT_NAMES:
+                                yield _thinking_sse(fr["name"], "done")
+
+                        if error:
+                            yield _sse("error", {"message": error})
+                            return
+                        if turn_complete:
+                            yield _sse("done", {})
+                            return
+                except httpx.RemoteProtocolError:
+                    # Server closed SSE connection normally after finishing
+                    pass
+        yield _sse("done", {})
+    except Exception as exc:
+        logger.exception("Remote agent stream failed")
+        message = _agent_error_message(exc, modality_label) or "No pude procesar tu mensaje."
+        yield _sse("error", {"message": message})
+
+
+# ---------------------------------------------------------------------------
 
 class MessageRequest(BaseModel):
     text: str
@@ -138,7 +301,7 @@ def _agent_error_message(exc: Exception, modality_label: str) -> str | None:
     return None
 
 
-async def _run_agent(content: Content, modality_label: str = "mensaje") -> str:
+async def _run_agent(content: Content, modality_label: str = "mensaje") -> str | None:
     await _ensure_session()
 
     for attempt in range(AGENT_MAX_ATTEMPTS):
@@ -166,6 +329,11 @@ async def _run_agent(content: Content, modality_label: str = "mensaje") -> str:
 
 
 async def _stream_agent(content: Content, modality_label: str = "mensaje"):
+    if AGENT_URL:
+        async for chunk in _stream_agent_remote(content, modality_label):
+            yield chunk
+        return
+
     await _ensure_session()
     run_config = RunConfig(streaming_mode=StreamingMode.SSE)
     try:
@@ -280,12 +448,27 @@ async def _audio_content(audio: UploadFile):
 async def _image_content(image: UploadFile):
     data = await image.read()
     mime_type = (image.content_type or "image/jpeg").split(";")[0]
+
+    if mime_type in SUPPORTED_SPREADSHEET_MIME:
+        try:
+            table_text = spreadsheet_to_text(data, mime_type, image.filename or "archivo")
+        except Exception as exc:
+            logger.warning("Failed to parse spreadsheet %s: %s", image.filename, exc)
+            return {"response": "No pude leer el archivo. Verificá que sea un CSV o Excel (.xlsx) válido."}
+        prompt = (
+            "El usuario compartió el siguiente archivo con datos financieros. "
+            "Analizá el contenido, identificá gastos, pagos o servicios, "
+            "y guardá los registros relevantes usando las herramientas disponibles.\n\n"
+            + table_text
+        )
+        return Content(role="user", parts=[Part.from_text(text=prompt)])
+
     if mime_type not in SUPPORTED_IMAGE_TYPES:
         logger.warning("Unsupported file MIME type received: %s", image.content_type)
         return {
             "response": (
                 "No pude procesar ese formato de archivo. "
-                "Soportamos JPEG, PNG, WEBP, HEIC y PDF."
+                "Soportamos imágenes, PDF, CSV y Excel (.xlsx)."
             )
         }
     return Content(

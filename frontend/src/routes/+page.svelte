@@ -369,6 +369,12 @@
         }
     }
 
+    const SPREADSHEET_TYPES = new Set([
+        "text/csv",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        "application/vnd.ms-excel",
+    ]);
+
     async function handleImageUpload(e: Event) {
         const input = e.target as HTMLInputElement;
         if (!input.files?.length || isStreaming) return;
@@ -376,12 +382,13 @@
         const file = input.files[0];
         input.value = ""; // reset
 
-        const fileUrl = URL.createObjectURL(file);
-        const fileType = file.type === "application/pdf" ? "pdf" : "image";
+        const isSpreadsheet = SPREADSHEET_TYPES.has(file.type);
+        const fileType = file.type === "application/pdf" ? "pdf" : isSpreadsheet ? "file" : "image";
+        const fileUrl = isSpreadsheet ? "" : URL.createObjectURL(file);
 
         messages.update((m) => [
             ...m,
-            { id: Date.now(), type: "usuario", text: "", fileUrl, fileType },
+            { id: Date.now(), type: "usuario", text: "", fileUrl, fileType, fileName: file.name },
         ]);
         const loadingId = addAgentStreamMessage();
         await streamIntoMessage(
@@ -392,7 +399,7 @@
                 onThinking: handlers.onThinking,
                 onChart: handlers.onChart,
             }),
-            "No pude procesar la imagen.",
+            "No pude procesar el archivo.",
         );
     }
 </script>
@@ -405,7 +412,7 @@
                     <div
                         class="query-pill max-w-[85%] px-5 py-4 border border-border bg-muted/30 text-foreground text-[15px] font-semibold rounded-[18px_18px_4px_18px]"
                     >
-                        {#if message.fileUrl}
+                        {#if message.fileUrl || message.fileType === "file"}
                             <div class="flex flex-col gap-3 mb-2">
                                 {#if message.fileType === "pdf"}
                                     <embed
@@ -413,6 +420,11 @@
                                         type="application/pdf"
                                         class="h-[300px] w-[250px] rounded-md bg-white object-cover"
                                     />
+                                {:else if message.fileType === "file"}
+                                    <div class="flex items-center gap-2 rounded-md border border-border bg-muted/40 px-3 py-2 text-sm text-muted-foreground">
+                                        <span class="font-mono text-xs">[archivo]</span>
+                                        <span class="truncate max-w-[200px]">{message.fileName}</span>
+                                    </div>
                                 {:else}
                                     <img
                                         src={message.fileUrl}
@@ -480,8 +492,7 @@
     <div class="flex items-end gap-2 border-t border-border bg-card p-4">
         <input
             type="file"
-            accept="image/*,application/pdf"
-            capture="environment"
+            accept="image/*,application/pdf,text/csv,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx,application/vnd.ms-excel,.xls"
             hidden
             bind:this={fileInput}
             onchange={handleImageUpload}

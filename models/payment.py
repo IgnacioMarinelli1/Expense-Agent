@@ -13,7 +13,7 @@ class PaymentCreate(BaseModel):
     due_date: Optional[datetime] = None
     status: Literal["pending", "paid", "overdue"] = "pending"
     period: Optional[str] = None
-    input_method: Literal["whatsapp", "manual", "email"] = "manual"
+    input_method: Literal["manual", "email"] = "manual"
     notes: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
     ai_extracted: Optional[dict[str, Any]] = None

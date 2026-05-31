@@ -1,6 +1,5 @@
 import unittest
 
-
 class FinancialChartSpecTest(unittest.TestCase):
     def test_invalid_chart_params_return_error(self):
         from expense_agent.charting import build_financial_chart_spec

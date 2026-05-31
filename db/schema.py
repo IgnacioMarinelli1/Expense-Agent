@@ -55,7 +55,7 @@ class PaymentSchema(TypedDict):
     due_date: datetime     # Due date of the payment
     status: str            # Current status (e.g., 'pending', 'paid', 'overdue')
     period: str            # Billing period (e.g., '2026-05', 'May 2026')
-    input_method: str      # How the payment was loaded (e.g., 'whatsapp', 'manual', 'email')
+    input_method: str      # How the payment was loaded (e.g., 'manual', 'email')
     notes: Optional[str]   # Any extra user notes
     metadata: dict[str, Any]      # Extra system/integrations metadata
     ai_extracted: dict[str, Any]  # Key-value pairs extracted by the AI agent

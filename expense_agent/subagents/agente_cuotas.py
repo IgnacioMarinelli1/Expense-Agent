@@ -1,8 +1,7 @@
 import os
 from google.adk.agents import LlmAgent
 from google.adk.tools.mcp_tool import MCPToolset
-from google.adk.tools.mcp_tool.mcp_session_manager import StdioConnectionParams
-from mcp import StdioServerParameters
+from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 _INSTRUCTION = """
 # Identity
@@ -89,18 +88,17 @@ Structure your response as follows:
 - If there are no active services at all, say so clearly in one line.
 """
 
+from ..schema_fix import strip_schemas_callback as _strip_schemas_callback
+
 agente_cuotas = LlmAgent(
     model=os.getenv("EXPENSE_AGENT_MODEL", "gemini-2.5-flash"),
     name="agente_cuotas",
     instruction=_INSTRUCTION,
+    before_model_callback=_strip_schemas_callback,
     tools=[
         MCPToolset(
-            connection_params=StdioConnectionParams(
-                server_params=StdioServerParameters(
-                    command="npx",
-                    args=["-y", "mongodb-mcp-server"],
-                    env={"MDB_MCP_CONNECTION_STRING": os.getenv("MONGO_URI", "")},
-                )
+            connection_params=StreamableHTTPConnectionParams(
+                url=os.getenv("MDB_MCP_URL", "http://localhost:8081/mcp"),
             )
         ),
     ],

@@ -1,0 +1,9 @@
+FROM node:20-slim
+WORKDIR /app
+RUN npm install -g mongodb-mcp-server@1.11.0
+ENV PORT=8080
+EXPOSE 8080
+# MDB_MCP_CONNECTION_STRING injected via Cloud Run secret (= MONGO_URI)
+# --httpHost 0.0.0.0 required: default is 127.0.0.1 which fails Cloud Run health checks
+# --httpPort reads $PORT set by Cloud Run (default 8080)
+CMD ["sh", "-c", "mongodb-mcp-server --transport http --httpHost 0.0.0.0 --httpPort $PORT"]
