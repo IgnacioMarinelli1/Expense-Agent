@@ -11,6 +11,8 @@
 		Moon,
 	} from "@lucide/svelte";
 
+	const { children } = $props();
+
 	const navItems = [
 		{ href: "/", label: "Chat", icon: MessageCircle },
 		{ href: "/expenses", label: "Expenses", icon: ReceiptText },
@@ -81,7 +83,7 @@
 		</header>
 
 		<main class="flex-1 overflow-hidden">
-			<slot />
+			{@render children()}
 		</main>
 
 		<nav

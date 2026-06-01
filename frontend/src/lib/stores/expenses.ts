@@ -37,7 +37,8 @@ export type Message = {
     text: string
     loading?: boolean
     fileUrl?: string
-    fileType?: 'image' | 'pdf'
+    fileType?: 'image' | 'pdf' | 'file'
+    fileName?: string
     traces?: TraceStep[]
     charts?: ChartSpec[]
 }
