@@ -1,11 +1,35 @@
-<<<<<<< HEAD
 import type { ChartSpec } from '$lib/stores/expenses'
 
 // URL del backend. En dev local, si VITE_API_URL no está configurado, usa :8000.
-=======
 // URL del backend
->>>>>>> f321496 (Implementacion de DashBoard)
 const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
+
+// ─── Paths que modifican la DB ────────────────────────────────────────────────
+const WRITE_PATHS = [
+    '/gastos',      // POST crear gasto
+    '/gastos/',     // PATCH marcar pagado
+    '/agente/mensaje',  // POST chat (puede crear gastos internamente)
+    '/agente/audio',    // POST audio
+    '/agente/imagen',   // POST imagen
+]
+
+function esEscritura(method: string, path: string): boolean {
+    const m = method.toUpperCase()
+    if (m === 'GET') return false
+    return WRITE_PATHS.some(p => path.startsWith(p))
+}
+
+// Importación lazy para evitar ciclos de dependencia
+async function dispararRefetch() {
+    try {
+        const { invalidar } = await import('$lib/stores/appState.svelte')
+        await invalidar()
+    } catch {
+        // silencioso — no rompe la operación principal
+    }
+}
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
 
 // ─── Paths que modifican la DB ────────────────────────────────────────────────
 const WRITE_PATHS = [
@@ -89,19 +113,15 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
 
         if (event === 'token') handlers.onToken(data.text ?? '')
         if (event === 'error') handlers.onError?.(data.message ?? 'No pude procesar tu mensaje.')
-<<<<<<< HEAD
-        if (event === 'done') handlers.onDone?.()
-        if (event === 'thinking') handlers.onThinking?.(data.agent, data.status, data.label)
-        if (event === 'chart') handlers.onChart?.(data)
-=======
         if (event === 'done') {
             handlers.onDone?.()
+        if (event === 'thinking') handlers.onThinking?.(data.agent, data.status, data.label)
+        if (event === 'chart') handlers.onChart?.(data)
             // Dispara refetch tras streaming de escritura
             if (esEscritura(options.method ?? 'POST', path)) {
                 dispararRefetch()
             }
         }
->>>>>>> f321496 (Implementacion de DashBoard)
     }
 
     while (true) {
@@ -154,14 +174,8 @@ export const api = {
 
     // ── Agente ────────────────────────────────────────
 
-<<<<<<< HEAD
-    // Enviar mensaje de texto al agente
     sendMessage(text: string) {
         return request<{ response: string }>('/agent/message', {
-=======
-    enviarMensaje(texto: string) {
-        return request<{ respuesta: string }>('/agente/mensaje', {
->>>>>>> f321496 (Implementacion de DashBoard)
             method: 'POST',
             body: JSON.stringify({ text })
         })
@@ -175,12 +189,7 @@ export const api = {
         }, handlers)
     },
 
-<<<<<<< HEAD
-    // Enviar audio al agente
     async sendAudio(blob: Blob) {
-=======
-    async enviarAudio(blob: Blob) {
->>>>>>> f321496 (Implementacion de DashBoard)
         const form = new FormData()
         form.append('audio', blob, 'grabacion.wav')
 
@@ -190,12 +199,7 @@ export const api = {
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
-<<<<<<< HEAD
         return res.json() as Promise<{ response: string }>
-=======
-        dispararRefetch()
-        return res.json() as Promise<{ respuesta: string }>
->>>>>>> f321496 (Implementacion de DashBoard)
     },
 
     streamAudio(blob: Blob, handlers: StreamHandlers) {
@@ -208,12 +212,7 @@ export const api = {
         }, handlers)
     },
 
-<<<<<<< HEAD
-    // Enviar imagen al agente
     async sendImage(file: File) {
-=======
-    async enviarImagen(file: File) {
->>>>>>> f321496 (Implementacion de DashBoard)
         const form = new FormData()
         form.append('image', file)
 
@@ -223,12 +222,7 @@ export const api = {
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
-<<<<<<< HEAD
         return res.json() as Promise<{ response: string }>
-=======
-        dispararRefetch()
-        return res.json() as Promise<{ respuesta: string }>
->>>>>>> f321496 (Implementacion de DashBoard)
     },
 
     streamImage(file: File, handlers: StreamHandlers) {

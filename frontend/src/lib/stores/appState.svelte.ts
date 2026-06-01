@@ -42,12 +42,31 @@ export async function invalidar(mes?: string): Promise<void> {
     _cargando = true
     _error = ''
     try {
-        const [gastosData, resumenData] = await Promise.all([
-            api.getGastos(mes),
-            api.getResumen(mes)
+        const [gastosRaw, resumenRaw] = await Promise.all([
+            api.getExpenses(mes),
+            api.getSummary(mes)
         ])
-        _gastos = gastosData as Gasto[]
-        _resumen = resumenData
+
+        // Mapear del formato de la API (inglés) al formato interno (español)
+        _gastos = (gastosRaw as any[]).map((e) => ({
+            id:          e.id,
+            tipo:        e.type,
+            categoria:   e.category,
+            monto:       e.amount,
+            fecha:       e.date,
+            vencimiento: e.due_date,
+            pagado:      e.paid,
+            notas:       e.notes,
+        }))
+
+        _resumen = {
+            total:               resumenRaw.total,
+            pagado:              resumenRaw.paid,
+            pendiente:           resumenRaw.pending,
+            cantidad_pagos:      resumenRaw.payments_count,
+            cantidad_pendientes: resumenRaw.pending_count,
+        }
+
         _ultimaActualizacion = Date.now()
     } catch (e) {
         _error = e instanceof Error ? e.message : 'Error al cargar datos'

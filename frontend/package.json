@@ -19,10 +19,14 @@
 		"@sveltejs/kit": "^2.60.1",
 		"@sveltejs/vite-plugin-svelte": "^7.0.0",
 <<<<<<< HEAD
+<<<<<<< HEAD
 		"@types/marked": "^5.0.2",
 =======
 		"@types/node": "^22.19.19",
 >>>>>>> f321496 (Implementacion de DashBoard)
+=======
+		"@types/node": "^22.19.19",
+>>>>>>> f3214960422229dc7de4ed7865f45f8da1f5f428
 		"autoprefixer": "^10.4.20",
 		"bits-ui": "^2.18.1",
 		"clsx": "^2.1.1",
