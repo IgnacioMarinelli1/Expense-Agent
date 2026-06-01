@@ -1,12 +1,43 @@
 from __future__ import annotations
 
+import json
+import re
+import time
 from collections import defaultdict
 from datetime import UTC, datetime
 from typing import Any
 from uuid import uuid4
 
+import httpx
+
 from db.db import get_db
 from db.security import current_user_id
+
+_FX_CACHE: dict[str, float] = {}
+_FX_CACHE_TS: float = 0.0
+_FX_CACHE_TTL = 300  # 5 min
+
+
+async def _fetch_fx_rates() -> dict[str, float]:
+    """Fetch ARS/USD and ARS/EUR blue rates from bluelytics. Cached 5 min."""
+    global _FX_CACHE, _FX_CACHE_TS
+    if _FX_CACHE and time.time() - _FX_CACHE_TS < _FX_CACHE_TTL:
+        return _FX_CACHE
+    try:
+        async with httpx.AsyncClient(timeout=5) as client:
+            resp = await client.get("https://api.bluelytics.com.ar/v2/latest")
+            data = resp.json()
+        rates: dict[str, float] = {
+            "ARS": 1.0,
+            "USD": float(data["blue"]["value_sell"]),
+        }
+        if "blue_euro" in data:
+            rates["EUR"] = float(data["blue_euro"]["value_sell"])
+        _FX_CACHE = rates
+        _FX_CACHE_TS = time.time()
+        return rates
+    except Exception:
+        return {"ARS": 1.0}
 
 CHART_TYPES = {
     "auto",
@@ -30,10 +61,36 @@ METRICS = {"amount", "count", "average"}
 GROUP_BY = {"category", "status", "period", "currency", "service", "notes"}
 THEMES = {"auto", "light", "dark"}
 EXECUTABLE_PREFIXES = ("function", "javascript:", "data:text/html", "=>")
+CHART_REQUEST_RE = re.compile(r"\[\[CHART_REQUEST:(.*?)\]\]", re.DOTALL)
+PERIOD_RE = re.compile(r"^\d{4}-\d{2}$")
 _PENDING_CHART_SPECS: list[dict[str, Any]] = []
 _DARK_TEXT = "#d4d4d8"
 _DARK_MUTED = "#a1a1aa"
 _DARK_GRID = "rgba(255,255,255,0.14)"
+
+CHART_REQUEST_INTENTS = {
+    "expenses_by_category": {"group_by": "category", "chart_type": "bar"},
+    "expenses_by_period": {"group_by": "period", "chart_type": "line"},
+    "monthly_trend": {"group_by": "period", "chart_type": "line"},
+    "expenses_by_currency": {"group_by": "currency", "chart_type": "donut"},
+    "expenses_by_status": {"group_by": "status", "chart_type": "donut"},
+    "expenses_status_breakdown": {"group_by": "status", "chart_type": "donut"},
+    "expenses_by_service": {"group_by": "service", "chart_type": "bar"},
+    "expenses_by_notes": {"group_by": "notes", "chart_type": "bar"},
+}
+
+CHART_TYPE_ALIASES = {
+    "torta": "pie",
+    "pie_chart": "pie",
+    "dona": "donut",
+    "donut_chart": "donut",
+    "barra": "bar",
+    "barras": "bar",
+    "bar_chart": "bar",
+    "linea": "line",
+    "línea": "line",
+    "line_chart": "line",
+}
 
 
 def queue_pending_chart_spec(chart_spec: dict[str, Any]) -> None:
@@ -49,6 +106,107 @@ def pop_pending_chart_specs() -> list[dict[str, Any]]:
     specs = list(_PENDING_CHART_SPECS)
     _PENDING_CHART_SPECS.clear()
     return specs
+
+
+def extract_chart_requests(text: str) -> tuple[str, list[tuple[str, dict[str, Any]]]]:
+    """Extract backend chart requests from agent text and remove them from user-visible copy."""
+    if not text:
+        return "", []
+
+    requests: list[tuple[str, dict[str, Any]]] = []
+
+    def _replace(match: re.Match[str]) -> str:
+        raw_marker = match.group(0)
+        raw_json = match.group(1).strip()
+        try:
+            payload = json.loads(raw_json)
+        except json.JSONDecodeError:
+            return ""
+        if isinstance(payload, dict):
+            requests.append((raw_marker, payload))
+        return ""
+
+    clean_text = CHART_REQUEST_RE.sub(_replace, text).strip()
+    return clean_text, requests
+
+
+def _normalized_optional_string(value: Any) -> str | None:
+    if value is None:
+        return None
+    normalized = str(value).strip()
+    return normalized or None
+
+
+def _normalize_period(value: Any) -> str | None:
+    period = _normalized_optional_string(value)
+    if not period:
+        return None
+    return period if PERIOD_RE.match(period) else None
+
+
+def _normalize_chart_type(value: Any, default: str) -> str:
+    chart_type = str(value or default).strip().lower()
+    chart_type = CHART_TYPE_ALIASES.get(chart_type, chart_type)
+    return chart_type if chart_type in CHART_TYPES else default
+
+
+def normalize_chart_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Normalize the small agent-authored chart intent into deterministic builder params."""
+    if not isinstance(request, dict):
+        return {"status": "error", "error_message": "chart_request debe ser un objeto"}
+
+    intent = str(request.get("intent") or "expenses_by_category").strip().lower()
+    if intent not in CHART_REQUEST_INTENTS:
+        return {"status": "error", "error_message": f"intent inválido: {intent}"}
+
+    defaults = CHART_REQUEST_INTENTS[intent]
+    group_by = str(request.get("group_by") or defaults["group_by"]).strip().lower()
+    if group_by not in GROUP_BY:
+        group_by = defaults["group_by"]
+
+    secondary_group_by = _normalized_optional_string(request.get("secondary_group_by"))
+    if secondary_group_by:
+        secondary_group_by = secondary_group_by.lower()
+        if secondary_group_by not in GROUP_BY or secondary_group_by == group_by:
+            secondary_group_by = None
+
+    metric = str(request.get("metric") or "amount").strip().lower()
+    if metric not in METRICS:
+        metric = "amount"
+
+    visual_mode = str(request.get("visual_mode") or "auto").strip().lower()
+    if visual_mode not in VISUAL_MODES:
+        visual_mode = "auto"
+
+    chart_type = _normalize_chart_type(request.get("chart_type"), defaults["chart_type"])
+    status = _normalized_optional_string(request.get("status"))
+    if status:
+        status = status.lower()
+
+    currency = _normalized_optional_string(request.get("currency"))
+    if currency:
+        currency = currency.upper()
+
+    try:
+        limit = int(request.get("limit") or 12)
+    except (TypeError, ValueError):
+        limit = 12
+    limit = max(1, min(limit, 50))
+
+    normalized = {
+        "intent": intent,
+        "chart_type": chart_type,
+        "visual_mode": visual_mode,
+        "metric": metric,
+        "period": _normalize_period(request.get("period")),
+        "compare_period": _normalize_period(request.get("compare_period")),
+        "group_by": group_by,
+        "secondary_group_by": secondary_group_by,
+        "status": status,
+        "currency": currency,
+        "limit": limit,
+    }
+    return {"status": "success", "request": normalized}
 
 
 def contains_executable_string(value: Any) -> bool:
@@ -131,24 +289,10 @@ def _category_from_payment(payment: dict[str, Any], category_overrides: dict[str
             if match:
                 return match
 
-    text = " ".join(
-        str(payment.get(key) or "")
-        for key in ("category", "notes", "service_name")
-    ).lower()
-    if any(k in text for k in ("luz", "electr", "edesur", "edenor")):
-        return "luz"
-    if any(k in text for k in ("gas", "metrogas", "camuzzi")):
-        return "gas"
-    if any(k in text for k in ("agua", "aysa")):
-        return "agua"
-    if any(k in text for k in ("abl", "impuest", "municipal", "tasa")):
-        return "impuesto"
-    if any(k in text for k in ("expensa", "admin")):
-        return "expensas"
-    if any(k in text for k in ("internet", "wifi", "tel", "cable", "movistar", "claro", "personal")):
-        return "telefonia"
-    if any(k in text for k in ("super", "mercado", "verduler", "farmacia", "comida")):
-        return "consumo"
+    stored = (payment.get("category") or "").strip().lower()
+    if stored and stored not in ("other", "otros", "none", "null"):
+        return stored
+
     return "otros"
 
 
@@ -510,9 +654,15 @@ def build_financial_chart_spec(
     title_period = period or "todos los períodos"
     title = f"{_series_name(metric)} por {group_by} ({title_period})"
 
+    currencies_in_data = {str(p.get("currency") or "ARS").upper() for p in filtered}
+    mixed_currencies = len(currencies_in_data) > 1 and not currency and group_by != "currency"
+
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for payment in filtered:
-        groups[_dimension_value(payment, group_by, category_overrides)].append(payment)
+        label = _dimension_value(payment, group_by, category_overrides)
+        if mixed_currencies:
+            label = f"{label} ({str(payment.get('currency') or 'ARS').upper()})"
+        groups[label].append(payment)
 
     if not filtered:
         option = _build_single_axis_option("bar", {}, metric, group_by, title)
@@ -603,6 +753,97 @@ async def generate_financial_chart(
     )
     if result.get("status") == "success" and isinstance(result.get("chart_spec"), dict):
         queue_pending_chart_spec(result["chart_spec"])
+    return result
+
+
+async def build_chart_spec_from_request(request: dict[str, Any]) -> dict[str, Any]:
+    """Build a ChartSpec from a small, validated chart intent emitted by the agent."""
+    raw_overrides = request.get("category_overrides")
+    llm_overrides: dict[str, str] = {}
+    if isinstance(raw_overrides, dict):
+        llm_overrides = {str(k): str(v) for k, v in raw_overrides.items() if k and v}
+
+    normalized_result = normalize_chart_request(request)
+    if normalized_result.get("status") != "success":
+        return normalized_result
+
+    chart_request = normalized_result["request"]
+    db = get_db()
+    query: dict[str, Any] = {"user_id": current_user_id()}
+    if chart_request["status"]:
+        query["status"] = chart_request["status"]
+    if chart_request["currency"]:
+        query["currency"] = chart_request["currency"]
+    if (
+        chart_request["period"]
+        and chart_request["group_by"] != "period"
+        and chart_request["secondary_group_by"] != "period"
+    ):
+        query["period"] = (
+            {"$in": [chart_request["period"], chart_request["compare_period"]]}
+            if chart_request["compare_period"]
+            else chart_request["period"]
+        )
+
+    docs = await db["payments"].find(query).sort("payment_date", -1).to_list(length=500)
+
+    services = await db["services"].find({"user_id": current_user_id()}).to_list(length=500)
+    service_map = {str(s["_id"]): s for s in services}
+    category_overrides: dict[str, str] = {}
+    for s in services:
+        sid = str(s["_id"])
+        cat = (s.get("category") or "").strip()
+        if cat:
+            category_overrides[sid] = cat
+            if s.get("name"):
+                category_overrides[s["name"]] = cat
+    for doc in docs:
+        sid = str(doc.get("service_id") or "")
+        svc = service_map.get(sid)
+        if svc:
+            if not doc.get("service_name"):
+                doc["service_name"] = svc.get("name") or svc.get("normalized_name") or ""
+            if not doc.get("category"):
+                doc["category"] = svc.get("category") or ""
+
+    merged_overrides = {**category_overrides, **llm_overrides}
+
+    # Normalize to ARS when grouping by something other than currency
+    fx_rates: dict[str, float] = {}
+    fx_applied = False
+    if not chart_request["currency"] and chart_request["group_by"] != "currency":
+        currencies_present = {str(d.get("currency") or "ARS").upper() for d in docs}
+        if len(currencies_present) > 1 or (currencies_present - {"ARS"}):
+            fx_rates = await _fetch_fx_rates()
+            if len(fx_rates) > 1:
+                for doc in docs:
+                    cur = str(doc.get("currency") or "ARS").upper()
+                    if cur != "ARS" and cur in fx_rates:
+                        doc["amount"] = round(float(doc.get("amount") or 0) * fx_rates[cur], 2)
+                        doc["currency"] = "ARS"
+                fx_applied = True
+
+    result = build_financial_chart_spec(
+        payments=docs,
+        chart_type=chart_request["chart_type"],
+        visual_mode=chart_request["visual_mode"],
+        metric=chart_request["metric"],
+        period=chart_request["period"],
+        compare_period=chart_request["compare_period"],
+        group_by=chart_request["group_by"],
+        secondary_group_by=chart_request["secondary_group_by"],
+        status=chart_request["status"],
+        currency=chart_request["currency"],
+        limit=chart_request["limit"],
+        category_overrides=merged_overrides or None,
+    )
+    if result.get("status") == "success" and isinstance(result.get("chart_spec"), dict):
+        result["chart_spec"]["source"]["intent"] = chart_request["intent"]
+        if fx_applied:
+            usd_rate = fx_rates.get("USD", 0)
+            result["chart_spec"]["subtitle"] = f"En ARS equivalente · USD blue ~${usd_rate:,.0f}"
+            result["chart_spec"]["source"]["fxNormalized"] = True
+            result["chart_spec"]["source"]["usdBlueRate"] = usd_rate
     return result
 
 

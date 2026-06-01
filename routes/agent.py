@@ -17,7 +17,11 @@ from google.genai.errors import ServerError
 from google.genai.types import Content, Part
 
 from expense_agent.agent import root_agent
-from expense_agent.charting import pop_pending_chart_specs
+from expense_agent.charting import (
+    build_chart_spec_from_request,
+    extract_chart_requests,
+    pop_pending_chart_specs,
+)
 from helpers.spreadsheet import SUPPORTED_SPREADSHEET_MIME, spreadsheet_to_text
 from db.security import current_session_id, current_user_id
 
@@ -109,6 +113,7 @@ _SUBAGENT_LABELS: dict[str, dict[str, str]] = {
 _SUBAGENT_NAMES = set(_SUBAGENT_LABELS.keys())
 _CHART_TOOL_NAME = "generate_financial_chart"
 _CHART_TOOL_NAMES = {"generate_financial_chart", "generate_custom_chart"}
+_CHART_REQUEST_PREFIX = "[[CHART_REQUEST:"
 
 # ---------------------------------------------------------------------------
 # Remote proxy helpers (used when AGENT_URL is set)
@@ -134,14 +139,8 @@ def _content_to_dict(content: Content) -> dict:
     }
 
 
-_remote_sessions_ready: set[tuple[str, str]] = set()
-
-
 async def _ensure_remote_session(user_id: str, session_id: str) -> None:
-    """Create the configured session on the remote ADK api_server if needed."""
-    session_key = (user_id, session_id)
-    if session_key in _remote_sessions_ready:
-        return
+    """Create the session on the remote ADK api_server. Always called — sessions are in-memory there."""
     url = f"{AGENT_URL}/apps/agent_runtime/users/{user_id}/sessions"
     headers = await _get_agent_auth_headers()
     try:
@@ -149,8 +148,6 @@ async def _ensure_remote_session(user_id: str, session_id: str) -> None:
             r = await client.post(url, json={"session_id": session_id}, headers=headers)
             if r.status_code not in (200, 201, 409):
                 logger.warning("Remote session create returned %s: %s", r.status_code, r.text)
-            else:
-                _remote_sessions_ready.add(session_key)
     except Exception as exc:
         logger.warning("Remote session init failed (will proceed anyway): %s", exc)
 
@@ -172,6 +169,8 @@ async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"
     total_streamed = ""
     turn_boundary_pending = False
     emitted_chart_ids: set[str] = set()
+    processed_chart_markers: set[str] = set()
+    chart_text_filter = _ChartRequestStreamFilter(emitted_chart_ids, processed_chart_markers)
 
     try:
         async with httpx.AsyncClient(
@@ -191,7 +190,10 @@ async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"
                             continue
 
                         parts = (event.get("content") or {}).get("parts") or []
-                        text = "".join(p.get("text") or "" for p in parts if "text" in p)
+                        raw_text = "".join(p.get("text") or "" for p in parts if "text" in p)
+                        text, chart_events = await chart_text_filter.push(raw_text)
+                        for chart_event in chart_events:
+                            yield chart_event
 
                         # ADK 2.x serializes to camelCase; support both conventions
                         fc_parts = [
@@ -249,17 +251,37 @@ async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"
                                         emitted_chart_ids.add(chart_id)
                                     yield _sse("chart", chart_payload)
                             if fr.get("name") in _SUBAGENT_NAMES:
+                                resp_data = fr.get("response", {})
+                                result_text = resp_data.get("result") if isinstance(resp_data, dict) else None
+                                if isinstance(result_text, str):
+                                    _, chart_events = await _chart_request_events_from_text(
+                                        result_text,
+                                        emitted_chart_ids,
+                                        processed_chart_markers,
+                                    )
+                                    for chart_event in chart_events:
+                                        yield chart_event
                                 yield _thinking_sse(fr["name"], "done")
 
                         if error:
                             yield _sse("error", {"message": _safe_agent_error_message(error, modality_label)})
                             return
                         if turn_complete:
+                            text, chart_events = await chart_text_filter.flush()
+                            for chart_event in chart_events:
+                                yield chart_event
+                            if text:
+                                yield _sse("token", {"text": text})
                             yield _sse("done", {})
                             return
                 except httpx.RemoteProtocolError:
                     # Server closed SSE connection normally after finishing
                     pass
+        text, chart_events = await chart_text_filter.flush()
+        for chart_event in chart_events:
+            yield chart_event
+        if text:
+            yield _sse("token", {"text": text})
         yield _sse("done", {})
     except Exception as exc:
         logger.exception("Remote agent stream failed")
@@ -303,8 +325,88 @@ def _thinking_sse(agent_name: str, status: str) -> str:
     return _sse("thinking", {"agent": agent_name, "status": status, "label": label})
 
 
+async def _chart_request_events_from_text(
+    text: str,
+    emitted_chart_ids: set[str],
+    processed_chart_markers: set[str],
+) -> tuple[str, list[str]]:
+    clean_text, chart_requests = extract_chart_requests(text)
+    events: list[str] = []
+    for raw_marker, chart_request in chart_requests:
+        if raw_marker in processed_chart_markers:
+            continue
+        processed_chart_markers.add(raw_marker)
+        result = await build_chart_spec_from_request(chart_request)
+        if result.get("status") != "success":
+            logger.warning("Chart request failed: %s", result.get("error_message"))
+            continue
+        chart_payload = result.get("chart_spec")
+        if not isinstance(chart_payload, dict):
+            continue
+        chart_id = chart_payload.get("id")
+        if chart_id in emitted_chart_ids:
+            continue
+        if chart_id:
+            emitted_chart_ids.add(chart_id)
+        events.append(_sse("chart", chart_payload))
+    return clean_text, events
+
+
+class _ChartRequestStreamFilter:
+    def __init__(self, emitted_chart_ids: set[str], processed_chart_markers: set[str]):
+        self._emitted_chart_ids = emitted_chart_ids
+        self._processed_chart_markers = processed_chart_markers
+        self._buffer = ""
+
+    async def push(self, text: str) -> tuple[str, list[str]]:
+        if not text:
+            return "", []
+        self._buffer += text
+        return await self._drain(final=False)
+
+    async def flush(self) -> tuple[str, list[str]]:
+        return await self._drain(final=True)
+
+    async def _drain(self, final: bool) -> tuple[str, list[str]]:
+        visible_parts: list[str] = []
+        chart_events: list[str] = []
+        while self._buffer:
+            marker_start = self._buffer.find(_CHART_REQUEST_PREFIX)
+            if marker_start == -1:
+                if final:
+                    visible_parts.append(self._buffer)
+                    self._buffer = ""
+                else:
+                    keep = min(len(self._buffer), len(_CHART_REQUEST_PREFIX) - 1)
+                    if len(self._buffer) > keep:
+                        visible_parts.append(self._buffer[:-keep])
+                        self._buffer = self._buffer[-keep:]
+                break
+
+            if marker_start > 0:
+                visible_parts.append(self._buffer[:marker_start])
+                self._buffer = self._buffer[marker_start:]
+                continue
+
+            marker_end = self._buffer.find("]]", len(_CHART_REQUEST_PREFIX))
+            if marker_end == -1:
+                if final:
+                    self._buffer = ""
+                break
+
+            marker_text = self._buffer[: marker_end + 2]
+            self._buffer = self._buffer[marker_end + 2 :]
+            _, events = await _chart_request_events_from_text(
+                marker_text,
+                self._emitted_chart_ids,
+                self._processed_chart_markers,
+            )
+            chart_events.extend(events)
+        return "".join(visible_parts), chart_events
+
+
 def _chart_payload_from_function_response(function_response) -> dict | None:
-    if getattr(function_response, "name", None) != _CHART_TOOL_NAME:
+    if getattr(function_response, "name", None) not in _CHART_TOOL_NAMES:
         return None
     response = getattr(function_response, "response", None)
     if not isinstance(response, dict) or response.get("status") != "success":
@@ -340,7 +442,18 @@ def _agent_error_message(exc: Exception, modality_label: str) -> str | None:
 
 
 def _safe_agent_error_message(error: str, modality_label: str) -> str:
-    return _agent_error_message(Exception(error), modality_label) or "No pude procesar tu mensaje."
+    if "503" in error or "UNAVAILABLE" in error or "high demand" in error:
+        return (
+            "Gemini no pudo procesar esto ahora mismo. "
+            f"El {modality_label} llegó bien, pero el modelo no pudo procesarlo. "
+            "Probá reenviarlo en unos segundos."
+        )
+    if "RESOURCE_EXHAUSTED" in error or "429" in error:
+        return (
+            f"Gemini recibió el {modality_label}, pero tu cuota o límite de uso está agotado. "
+            "Esperá unos segundos y probá de nuevo, o cambiá EXPENSE_AGENT_MODEL."
+        )
+    return "No pude procesar tu mensaje."
 
 
 async def _run_agent(content: Content, modality_label: str = "mensaje") -> str | None:
@@ -386,13 +499,18 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
         total_streamed = ""
         turn_boundary_pending = False
         emitted_chart_ids: set[str] = set()
+        processed_chart_markers: set[str] = set()
+        chart_text_filter = _ChartRequestStreamFilter(emitted_chart_ids, processed_chart_markers)
         async for event in _runner.run_async(
             user_id=user_id,
             session_id=session_id,
             new_message=content,
             run_config=run_config,
         ):
-            text = _event_text(event)
+            raw_text = _event_text(event)
+            text, chart_events = await chart_text_filter.push(raw_text)
+            for chart_event in chart_events:
+                yield chart_event
             has_fc = bool(event.get_function_calls())
 
             if has_fc:
@@ -432,6 +550,16 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
                         emitted_chart_ids.add(chart_id)
                     yield _sse("chart", chart_payload)
                 if fr.name in _SUBAGENT_NAMES:
+                    response = getattr(fr, "response", None)
+                    result_text = response.get("result") if isinstance(response, dict) else None
+                    if isinstance(result_text, str):
+                        _, chart_events = await _chart_request_events_from_text(
+                            result_text,
+                            emitted_chart_ids,
+                            processed_chart_markers,
+                        )
+                        for chart_event in chart_events:
+                            yield chart_event
                     yield _thinking_sse(fr.name, "done")
 
             for chart_event in _drain_pending_chart_sse():
@@ -450,8 +578,18 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
                 yield _sse("error", {"message": _safe_agent_error_message(event.error_message, modality_label)})
                 return
             if event.turn_complete:
+                text, chart_events = await chart_text_filter.flush()
+                for chart_event in chart_events:
+                    yield chart_event
+                if text:
+                    yield _sse("token", {"text": text})
                 yield _sse("done", {})
                 return
+        text, chart_events = await chart_text_filter.flush()
+        for chart_event in chart_events:
+            yield chart_event
+        if text:
+            yield _sse("token", {"text": text})
         yield _sse("done", {})
     except Exception as exc:
         message = _agent_error_message(exc, modality_label) or "No pude procesar tu mensaje."

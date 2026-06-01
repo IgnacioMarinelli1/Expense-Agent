@@ -1,4 +1,5 @@
 import unittest
+from unittest.mock import patch
 
 
 class AgentChartSseTest(unittest.TestCase):
@@ -56,6 +57,71 @@ class AgentChartSseTest(unittest.TestCase):
 
         self.assertIn("cuota", message)
         self.assertNotIn("secret-ish-provider-detail", message)
+
+
+class AgentChartRequestSseTest(unittest.IsolatedAsyncioTestCase):
+    async def test_chart_request_marker_builds_chart_sse_and_strips_text(self):
+        from routes.agent import _chart_request_events_from_text
+
+        async def fake_build_chart_spec_from_request(request):
+            return {
+                "status": "success",
+                "chart_spec": {
+                    "id": "chart_from_request",
+                    "title": "Gastos por categoría",
+                    "option": {"series": []},
+                },
+            }
+
+        text = (
+            '[[CHART_REQUEST:{"intent":"expenses_by_category","chart_type":"pie"}]]'
+            "Listo, te dejo el corte por categoría."
+        )
+
+        with patch("routes.agent.build_chart_spec_from_request", fake_build_chart_spec_from_request):
+            clean_text, events = await _chart_request_events_from_text(text, set(), set())
+
+        self.assertEqual(clean_text, "Listo, te dejo el corte por categoría.")
+        self.assertEqual(len(events), 1)
+        self.assertIn("event: chart", events[0])
+        self.assertIn('"id": "chart_from_request"', events[0])
+
+    async def test_stream_filter_holds_split_chart_marker_until_complete(self):
+        from routes.agent import _ChartRequestStreamFilter
+
+        async def fake_build_chart_spec_from_request(request):
+            return {
+                "status": "success",
+                "chart_spec": {
+                    "id": "chart_split_marker",
+                    "title": "Gastos por categoría",
+                    "option": {"series": []},
+                },
+            }
+
+        chunks = [
+            "Voy a preparar el gráfico.\n\n[[CH",
+            "ART_REQUEST:{\"intent\":\"expenses_by_category\",\"chart_type\":\"pie\"}]",
+            "]Listo.",
+        ]
+        visible = []
+        events = []
+
+        with patch("routes.agent.build_chart_spec_from_request", fake_build_chart_spec_from_request):
+            chart_filter = _ChartRequestStreamFilter(set(), set())
+            for chunk in chunks:
+                clean_text, chart_events = await chart_filter.push(chunk)
+                visible.append(clean_text)
+                events.extend(chart_events)
+            clean_text, chart_events = await chart_filter.flush()
+            visible.append(clean_text)
+            events.extend(chart_events)
+
+        rendered = "".join(visible)
+        self.assertEqual(rendered, "Voy a preparar el gráfico.\n\nListo.")
+        self.assertNotIn("CHART_REQUEST", rendered)
+        self.assertEqual(len(events), 1)
+        self.assertIn('"id": "chart_split_marker"', events[0])
 
 
 if __name__ == "__main__":

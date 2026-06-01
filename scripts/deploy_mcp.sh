@@ -28,7 +28,7 @@ gcloud run deploy "${SERVICE_NAME}" \
   --project="${PROJECT_ID}" \
   --platform=managed \
   --no-allow-unauthenticated \
-  --ingress=internal \
+  --ingress=all \
   --min-instances=1 \
   --memory=1Gi \
   --cpu=1 \

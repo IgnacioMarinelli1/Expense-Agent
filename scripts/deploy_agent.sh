@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
 # Deploy the expense agent to Cloud Run.
 # Required env vars: PROJECT_ID, MONGO_URI, GOOGLE_API_KEY
-# Optional: REGION (default: us-central1), SERVICE_NAME (default: expense-agent)
+# Optional: REGION (default: southamerica-east1), SERVICE_NAME (default: expense-agent)
 set -euo pipefail
 
 PROJECT_ID="${PROJECT_ID:?Set PROJECT_ID}"
-REGION="${REGION:-us-central1}"
+REGION="${REGION:-southamerica-east1}"
 SERVICE_NAME="${SERVICE_NAME:-expense-agent}"
 REPO="${REPO:-cloud-run-source-deploy}"
 MONGO_DB_NAME="${MONGO_DB_NAME:-expense_agent_db}"
 EXPENSE_AGENT_USER_ID="${EXPENSE_AGENT_USER_ID:-demo_user}"
-MDB_MCP_URL="${MDB_MCP_URL:?Set MDB_MCP_URL (URL del servicio expense-mcp en Cloud Run, ej: https://expense-mcp-xxx.run.app/mcp)}"
+EXPENSE_AGENT_MODEL="${EXPENSE_AGENT_MODEL:-gemini-2.5-flash}"
+MDB_MCP_URL="${MDB_MCP_URL:?Set MDB_MCP_URL (URL del servicio expense-mcp en Cloud Run, ej: https://expense-mcp-xxx.run.app)}"
 
 COMMIT_SHA="$(git rev-parse HEAD 2>/dev/null || echo 'latest')"
 IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${REPO}/${SERVICE_NAME}:${COMMIT_SHA}"
@@ -61,7 +62,15 @@ gcloud run deploy "${SERVICE_NAME}" \
   --cpu=1 \
   --timeout=300 \
   --set-secrets="MONGO_URI=MONGO_URI:latest,GOOGLE_API_KEY=GOOGLE_API_KEY:latest" \
-  --set-env-vars="MONGO_DB_NAME=${MONGO_DB_NAME},MDB_MCP_URL=${MDB_MCP_URL},EXPENSE_AGENT_USER_ID=${EXPENSE_AGENT_USER_ID}"
+  --set-env-vars="MONGO_DB_NAME=${MONGO_DB_NAME},MDB_MCP_URL=${MDB_MCP_URL},EXPENSE_AGENT_USER_ID=${EXPENSE_AGENT_USER_ID},EXPENSE_AGENT_MODEL=${EXPENSE_AGENT_MODEL},ADK_ENABLE_PROGRESSIVE_SSE_STREAMING=0"
+
+echo ""
+echo "==> Setting IAM policy (allow unauthenticated)..."
+gcloud run services add-iam-policy-binding "${SERVICE_NAME}" \
+  --region="${REGION}" \
+  --project="${PROJECT_ID}" \
+  --member="allUsers" \
+  --role="roles/run.invoker"
 
 echo ""
 echo "==> Done. Service URL:"

@@ -1,6 +1,42 @@
 import unittest
 
 class FinancialChartSpecTest(unittest.TestCase):
+    def test_extracts_chart_request_marker_and_cleans_visible_text(self):
+        from expense_agent.charting import extract_chart_requests
+
+        text = (
+            '[[CHART_REQUEST:{"intent":"expenses_by_category","chart_type":"pie",'
+            '"period":"2026-06","currency":"ARS"}]]\n'
+            "La comida concentra buena parte del mes."
+        )
+
+        clean_text, requests = extract_chart_requests(text)
+
+        self.assertEqual(clean_text, "La comida concentra buena parte del mes.")
+        self.assertEqual(len(requests), 1)
+        self.assertEqual(requests[0][1]["intent"], "expenses_by_category")
+        self.assertEqual(requests[0][1]["chart_type"], "pie")
+
+    def test_chart_request_intent_normalizes_backend_chart_params(self):
+        from expense_agent.charting import normalize_chart_request
+
+        result = normalize_chart_request(
+            {
+                "intent": "expenses_by_category",
+                "chart_type": "torta",
+                "period": "2026-06",
+                "metric": "amount",
+                "currency": "ars",
+                "limit": 500,
+            }
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(result["request"]["group_by"], "category")
+        self.assertEqual(result["request"]["chart_type"], "pie")
+        self.assertEqual(result["request"]["currency"], "ARS")
+        self.assertEqual(result["request"]["limit"], 50)
+
     def test_invalid_chart_params_return_error(self):
         from expense_agent.charting import build_financial_chart_spec
 
@@ -96,13 +132,21 @@ class FinancialChartSpecTest(unittest.TestCase):
         labels = result["chart_spec"]["option"]["xAxis3D"]["data"]
         self.assertEqual(labels, ["tecnología", "vehículo"])
 
-    def test_visualization_agent_is_instructed_to_categorize_with_overrides(self):
+    def test_visualization_agent_is_instructed_to_emit_chart_request_marker(self):
         from pathlib import Path
 
         agent_source = Path("expense_agent/subagents/agente_visualizacion.py").read_text()
 
-        self.assertIn("get_chart_source_data", agent_source)
-        self.assertIn("category_overrides", agent_source)
+        self.assertIn("CHART_REQUEST", agent_source)
+        self.assertIn("expenses_by_category", agent_source)
+
+    def test_root_agent_handles_chart_requests_without_visualization_tool_call(self):
+        from pathlib import Path
+
+        agent_source = Path("expense_agent/agent.py").read_text()
+
+        self.assertIn("emit a CHART_REQUEST marker directly", agent_source)
+        self.assertNotIn("AgentTool(agent=agente_visualizacion)", agent_source)
 
     def test_custom_chart_spec_allows_agent_authored_echarts_options(self):
         from expense_agent.charting import build_custom_chart_spec
@@ -162,13 +206,13 @@ class FinancialChartSpecTest(unittest.TestCase):
         self.assertEqual(option["xAxis"]["axisLabel"]["color"], "#a1a1aa")
         self.assertEqual(option["yAxis"]["splitLine"]["lineStyle"]["color"], "rgba(255,255,255,0.14)")
 
-    def test_visualization_agent_has_custom_chart_tool(self):
+    def test_visualization_agent_does_not_use_agent_authored_echarts_tool(self):
         from pathlib import Path
 
         agent_source = Path("expense_agent/subagents/agente_visualizacion.py").read_text()
 
-        self.assertIn("generate_custom_chart", agent_source)
-        self.assertIn("opciones completas de ECharts", agent_source)
+        self.assertIn("tools=[]", agent_source)
+        self.assertIn("You DO NOT generate ECharts options", agent_source)
 
     def test_visualization_agent_is_told_not_to_expose_internal_data_language(self):
         from pathlib import Path
@@ -176,8 +220,8 @@ class FinancialChartSpecTest(unittest.TestCase):
         agent_source = Path("expense_agent/subagents/agente_visualizacion.py").read_text()
 
         self.assertIn("No hables de datos internos", agent_source)
-        self.assertIn("service_id", agent_source)
-        self.assertIn("category_overrides", agent_source)
+        self.assertIn("Never mention MongoDB", agent_source)
+        self.assertIn("internal steps", agent_source)
 
     def test_auto_selects_line_for_monthly_evolution(self):
         from expense_agent.charting import build_financial_chart_spec

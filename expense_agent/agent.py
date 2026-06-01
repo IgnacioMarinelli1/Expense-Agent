@@ -1,6 +1,9 @@
 import os
 from datetime import datetime
 from dotenv import load_dotenv
+
+load_dotenv(override=True)
+
 from google.adk.agents import LlmAgent
 from google.adk.features import FeatureName, override_feature_enabled
 from google.adk.tools.agent_tool import AgentTool
@@ -8,6 +11,24 @@ from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
 
 override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
+
+
+def _mcp_auth_headers() -> dict[str, str]:
+    """Fetch OIDC identity token for the MCP service at startup. Works on Cloud Run via metadata server."""
+    mcp_url = os.getenv("MDB_MCP_URL", "")
+    if not mcp_url or mcp_url.startswith("http://localhost"):
+        return {}
+    try:
+        from urllib.parse import urlparse
+        import google.auth.transport.requests
+        import google.oauth2.id_token
+        parsed = urlparse(mcp_url)
+        audience = f"{parsed.scheme}://{parsed.netloc}"
+        req = google.auth.transport.requests.Request()
+        token = google.oauth2.id_token.fetch_id_token(req, audience)
+        return {"Authorization": f"Bearer {token}"}
+    except Exception:
+        return {}
 
 # Patch McpTool (the real class, not the deprecated MCPTool wrapper) to always
 # use _to_gemini_schema which strips additionalProperties that Gemini rejects.
@@ -19,11 +40,14 @@ from db.security import current_user_id
 def _patched_get_declaration(self):
     input_schema = self._mcp_tool.inputSchema
     if input_schema:
-        return _FunctionDeclaration(
-            name=self.name,
-            description=self.description,
-            parameters=_adk_to_gemini_schema(input_schema),
-        )
+        try:
+            return _FunctionDeclaration(
+                name=self.name,
+                description=self.description,
+                parameters=_adk_to_gemini_schema(input_schema),
+            )
+        except Exception:
+            pass
     return _FunctionDeclaration(name=self.name, description=self.description)
 
 _McpTool._get_declaration = _patched_get_declaration
@@ -31,6 +55,7 @@ _McpTool._get_declaration = _patched_get_declaration
 from .schema_fix import strip_schemas_callback as _strip_schemas_callback
 from .tools import (
     save_expense,
+    update_expense,
     save_service,
     get_expenses,
     get_expense,
@@ -41,8 +66,6 @@ from .tools import (
     get_monthly_finance_summary,
 )
 from .subagents import agente_diagnostico, agente_visualizacion
-
-load_dotenv()
 
 CURRENT_DATE = datetime.now().date().isoformat()
 CURRENT_USER_ID = current_user_id()
@@ -163,11 +186,21 @@ Use it when the user asks what salary/budget is saved for a month.
 Compares the month spending against saved salary and budget.
 Use it for "cómo vengo con el presupuesto", "cuánto me queda", "me pasé del presupuesto", or "cuánto queda del sueldo".
 
-## MongoDB MCP tools (find, aggregate, list-collections, etc.)
-You also have direct MongoDB access via MCP tools. The database is `expense_agent_db`, collections: `payments`, `services`, `monthly_finances`, `users`, `properties`.
-Use these for complex queries that the tools above can't handle: cross-collection queries, custom aggregations, or when the user asks for raw data.
-Always filter user-owned records with `user_id: "{CURRENT_USER_ID}"`.
-Prefer the high-level tools above for standard operations. Use MCP only when needed.
+## CRITICAL: Always search before denying
+NEVER say a payment, expense, or service "doesn't exist" or "is not registered" without first calling get_expenses (or get_services). The user's data is in the database — always query it before concluding something isn't there.
+
+## update_expense
+Updates an existing payment by ID. Use it to:
+- Mark a payment as paid: update_expense(payment_id=..., status="paid")
+- Correct an amount or notes on an existing record.
+IMPORTANT: Always call get_expenses first to find the payment_id, then call update_expense with that id.
+If the user says "ya pagué todo" or "marcame todos como pagados", get pending expenses and update each one.
+
+## MongoDB MCP tools
+You may have direct MongoDB access via MCP tools for complex queries not covered by the tools above.
+CRITICAL: Only call MCP tools (find, aggregate, etc.) if they explicitly appear in your available tools list.
+If they are not available, use the high-level tools above. Never call a tool you cannot see in your tool list.
+When using MCP tools, ALWAYS use database name "expense_agent_db". Collections: payments, services, monthly_finances.
 
 ## agente_diagnostico (sub-agente especializado)
 You have access to a specialized diagnostic agent. Delegate to it for complex financial analysis.
@@ -181,17 +214,17 @@ Do NOT invoke `agente_diagnostico` for simple operations like recording a paymen
 Handle those yourself directly.
 AND DO NOT USE EMOJIS IN YOUR RESPONSES
 
-## agente_visualizacion (sub-agente especializado)
-You have access to a specialized visualization agent for interactive charts.
+## agente_visualizacion (sub-agente especializado en gráficos)
+You have access to a specialized visualization agent. Delegate to it for ALL chart/graph requests.
 Invoke `agente_visualizacion` when the user asks for:
 - "gráfico", "chart", "visualización", "dashboard visual"
 - "mostrame", "compará", "evolución", "distribución", "ranking"
 - "hacelo 3D", "en torta", "en barras", "por categoría", "por mes"
-- A summary that clearly benefits from a visual chart.
+- Any summary that benefits from a visual chart.
 
-The visualization agent must use its chart tool and will produce an interactive ChartSpec for the frontend.
-Do NOT write chart JSON, HTML, SVG, JavaScript, or ECharts options yourself.
-After delegating, answer briefly with 1-3 concrete insights in the user's language.
+Do NOT emit CHART_REQUEST markers yourself. Do NOT handle chart requests directly.
+Do NOT write HTML, SVG, JavaScript, or any chart specification yourself.
+Just pass the user's chart request to agente_visualizacion and return its response verbatim.
 
 # Decision Tree before calling tools
 Before acting, internally classify the message:
@@ -203,7 +236,7 @@ Before acting, internally classify the message:
    - Salary/budget saved for a month => use get_monthly_finance.
    - Budget/salary status against monthly spending => use get_monthly_finance_summary.
    - Visual chart/graph request => delegate to agente_visualizacion.
-   - Complex or custom query => use MongoDB MCP tools directly.
+   - Complex or custom query => use MongoDB MCP tools only if available in your tool list.
 
 2. Does the user describe a one-off payment/expense?
    Signals: "pagué", "gasté", "compré", "aboné", "me cobraron", "se venció", "vence", "tengo que pagar".
@@ -332,6 +365,7 @@ root_agent = LlmAgent(
     before_model_callback=_strip_schemas_callback,
     tools=[
         save_expense,
+        update_expense,
         save_service,
         get_expenses,
         get_expense,
@@ -343,6 +377,7 @@ root_agent = LlmAgent(
         MCPToolset(
             connection_params=StreamableHTTPConnectionParams(
                 url=os.getenv("MDB_MCP_URL", "http://localhost:8081/mcp"),
+                headers=_mcp_auth_headers(),
             )
         ),
         AgentTool(agent=agente_diagnostico),

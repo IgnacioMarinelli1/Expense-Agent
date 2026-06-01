@@ -235,6 +235,49 @@ async def get_expense(payment_id: str) -> dict:
     return {"status": "success", "expense": doc}
 
 
+async def update_expense(
+    payment_id: str,
+    status: str = None,
+    amount: float = None,
+    notes: str = None,
+    payment_date: str = None,
+) -> dict:
+    """Actualiza un gasto existente por su ID. Usá esta tool para marcar pagos como 'paid', corregir montos o notas.
+    status puede ser: 'paid', 'pending', 'overdue'.
+    Solo se actualizan los campos que se pasen explícitamente."""
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    from datetime import datetime
+
+    if not any([status, amount, notes, payment_date]):
+        return {"status": "error", "error_message": "Debés indicar al menos un campo para actualizar."}
+
+    db = get_db()
+    update: dict[str, Any] = {}
+    if status:
+        update["status"] = status
+    if amount is not None:
+        if amount <= 0:
+            return {"status": "error", "error_message": "El monto debe ser mayor a 0."}
+        update["amount"] = amount
+    if notes:
+        update["notes"] = notes
+    if payment_date:
+        update["payment_date"] = datetime.fromisoformat(payment_date)
+
+    try:
+        result = await db["payments"].update_one(
+            {"_id": ObjectId(payment_id), "user_id": current_user_id()},
+            {"$set": update},
+        )
+    except InvalidId:
+        return {"status": "error", "error_message": f"ID inválido: {payment_id}"}
+
+    if result.matched_count == 0:
+        return {"status": "error", "error_message": "Gasto no encontrado."}
+    return {"status": "success", "updated_fields": list(update.keys())}
+
+
 async def get_monthly_summary(period: str) -> dict:
     """Resumen de gastos de un mes. period en formato YYYY-MM (ej: 2026-05)."""
     db = get_db()

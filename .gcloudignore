@@ -11,9 +11,5 @@ __pycache__/
 .env.*
 sessions.db
 *.db
-routes/
-main.py
-helpers/
-models/
 docs/
 context.md
