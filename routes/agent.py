@@ -3,6 +3,8 @@ import base64
 import json
 import logging
 import os
+import time
+from urllib.parse import urlparse
 
 import httpx
 from fastapi import APIRouter, UploadFile, File
@@ -25,6 +27,40 @@ logger = logging.getLogger(__name__)
 # When set, all streaming runs are proxied to the remote Cloud Run agent service.
 # When unset, the agent runs in-process (local dev mode).
 AGENT_URL = os.getenv("AGENT_URL", "").rstrip("/")
+
+# ---------------------------------------------------------------------------
+# Cloud Run authentication helpers
+# ---------------------------------------------------------------------------
+_id_token_cache: dict[str, tuple[str, float]] = {}  # audience -> (token, expiry_ts)
+
+
+async def _get_agent_auth_headers() -> dict[str, str]:
+    """Return Authorization header for the Cloud Run agent service, or {} on failure."""
+    if not AGENT_URL:
+        return {}
+    parsed = urlparse(AGENT_URL)
+    audience = f"{parsed.scheme}://{parsed.netloc}"
+
+    cached = _id_token_cache.get(audience)
+    if cached:
+        token, expiry = cached
+        if time.time() < expiry - 60:
+            return {"Authorization": f"Bearer {token}"}
+
+    try:
+        import google.auth.transport.requests
+        import google.oauth2.id_token
+
+        def _fetch() -> str:
+            req = google.auth.transport.requests.Request()
+            return google.oauth2.id_token.fetch_id_token(req, audience)
+
+        token = await asyncio.to_thread(_fetch)
+        _id_token_cache[audience] = (token, time.time() + 3600)
+        return {"Authorization": f"Bearer {token}"}
+    except Exception as exc:
+        logger.warning("Could not fetch ID token for %s: %s", audience, exc)
+        return {}
 
 AGENT_MAX_ATTEMPTS = 2
 SUPPORTED_AUDIO_TYPES = {
@@ -107,9 +143,10 @@ async def _ensure_remote_session(user_id: str, session_id: str) -> None:
     if session_key in _remote_sessions_ready:
         return
     url = f"{AGENT_URL}/apps/agent_runtime/users/{user_id}/sessions"
+    headers = await _get_agent_auth_headers()
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
-            r = await client.post(url, json={"session_id": session_id})
+            r = await client.post(url, json={"session_id": session_id}, headers=headers)
             if r.status_code not in (200, 201, 409):
                 logger.warning("Remote session create returned %s: %s", r.status_code, r.text)
             else:
@@ -131,6 +168,7 @@ async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"
         "new_message": _content_to_dict(content),
     }
 
+    headers = await _get_agent_auth_headers()
     total_streamed = ""
     turn_boundary_pending = False
     emitted_chart_ids: set[str] = set()
@@ -139,7 +177,7 @@ async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"
         async with httpx.AsyncClient(
             timeout=httpx.Timeout(180.0, connect=10.0)
         ) as client:
-            async with client.stream("POST", f"{AGENT_URL}/run_sse", json=body) as resp:
+            async with client.stream("POST", f"{AGENT_URL}/run_sse", json=body, headers=headers) as resp:
                 try:
                     async for line in resp.aiter_lines():
                         if not line.startswith("data: "):

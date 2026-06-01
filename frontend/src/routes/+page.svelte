@@ -14,7 +14,7 @@
     import ChatChart from "$lib/components/ChatChart.svelte";
 
     // Instance scope: repopulated on mount to detect pre-existing messages on first render
-    const knownHistoryMessages = new Set<string>();
+    const knownHistoryMessages = new Set<number>();
 
     onMount(() => {
         const unsubscribe = messages.subscribe(($messages) => {
@@ -540,7 +540,6 @@
         </button>
     </div>
 </div>
-
 <style>
     :global(.markdown-body p) {
         margin-bottom: 0.5rem;
