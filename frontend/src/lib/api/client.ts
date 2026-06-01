@@ -1,40 +1,12 @@
 import type { ChartSpec } from '$lib/stores/expenses'
 
 // URL del backend. En dev local, si VITE_API_URL no está configurado, usa :8000.
-// URL del backend
 const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
 
 // ─── Paths que modifican la DB ────────────────────────────────────────────────
 const WRITE_PATHS = [
-    '/gastos',      // POST crear gasto
-    '/gastos/',     // PATCH marcar pagado
-    '/agente/mensaje',  // POST chat (puede crear gastos internamente)
-    '/agente/audio',    // POST audio
-    '/agente/imagen',   // POST imagen
-]
-
-function esEscritura(method: string, path: string): boolean {
-    const m = method.toUpperCase()
-    if (m === 'GET') return false
-    return WRITE_PATHS.some(p => path.startsWith(p))
-}
-
-// Importación lazy para evitar ciclos de dependencia
-async function dispararRefetch() {
-    try {
-        const { invalidar } = await import('$lib/stores/appState.svelte')
-        await invalidar()
-    } catch {
-        // silencioso — no rompe la operación principal
-    }
-}
-
-// ─── Tipos ────────────────────────────────────────────────────────────────────
-
-// ─── Paths que modifican la DB ────────────────────────────────────────────────
-const WRITE_PATHS = [
-    '/gastos',      // POST crear gasto
-    '/gastos/',     // PATCH marcar pagado
+    '/gastos',          // POST crear gasto
+    '/gastos/',         // PATCH marcar pagado
     '/agente/mensaje',  // POST chat (puede crear gastos internamente)
     '/agente/audio',    // POST audio
     '/agente/imagen',   // POST imagen
@@ -105,18 +77,18 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
 
     function processEvent(rawEvent: string) {
         const eventLine = rawEvent.split('\n').find(line => line.startsWith('event: '))
-        const dataLine = rawEvent.split('\n').find(line => line.startsWith('data: '))
+        const dataLine  = rawEvent.split('\n').find(line => line.startsWith('data: '))
         if (!eventLine || !dataLine) return
 
         const event = eventLine.slice(7).trim()
-        const data = JSON.parse(dataLine.slice(6))
+        const data  = JSON.parse(dataLine.slice(6))
 
-        if (event === 'token') handlers.onToken(data.text ?? '')
-        if (event === 'error') handlers.onError?.(data.message ?? 'No pude procesar tu mensaje.')
+        if (event === 'token')    handlers.onToken(data.text ?? '')
+        if (event === 'error')    handlers.onError?.(data.message ?? 'No pude procesar tu mensaje.')
+        if (event === 'thinking') handlers.onThinking?.(data.agent, data.status, data.label)
+        if (event === 'chart')    handlers.onChart?.(data)
         if (event === 'done') {
             handlers.onDone?.()
-        if (event === 'thinking') handlers.onThinking?.(data.agent, data.status, data.label)
-        if (event === 'chart') handlers.onChart?.(data)
             // Dispara refetch tras streaming de escritura
             if (esEscritura(options.method ?? 'POST', path)) {
                 dispararRefetch()
