@@ -5,6 +5,11 @@ from typing import Any
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from db.db import get_db
+<<<<<<< Updated upstream
+=======
+from db.security import current_user_id
+from helpers.categorizer import categorize, is_known_category
+>>>>>>> Stashed changes
 
 # user_id is resolved server-side, never from model input
 _USER_ID = "demo_user"
@@ -21,8 +26,19 @@ async def save_expense(
     input_method: str = "manual",
     service_id: str = None,
     property_id: str = None,
+    category: str = None,
 ) -> dict:
+<<<<<<< Updated upstream
     """Guarda un gasto en la base de datos. Requerido: amount."""
+=======
+    """Guarda un gasto en la base de datos. Requerido: amount.
+    Retorna status 'duplicate' si el pago ya existe — en ese caso NO reintentar.
+
+    category (opcional): bucket canónico para el gasto. Valores:
+    'luz', 'gas', 'agua', 'impuesto', 'expensas', 'telefonia',
+    'subscription', 'comida', 'transporte', 'salud', 'otros'.
+    Si no se pasa, se infiere automáticamente desde notes."""
+>>>>>>> Stashed changes
     if amount <= 0:
         return {"status": "error", "error_message": "El monto debe ser mayor a 0"}
     db = get_db()
@@ -40,6 +56,17 @@ async def save_expense(
     if period:      doc["period"] = period
     if service_id:  doc["service_id"] = service_id
     if property_id: doc["property_id"] = property_id
+
+    # Persist a canonical category. Prefer the explicit value when valid,
+    # otherwise infer it from notes so legacy/manual calls also produce
+    # categorized rows for the UI to color correctly.
+    resolved_category: str | None = None
+    if category and is_known_category(category.strip().lower()):
+        resolved_category = category.strip().lower()
+    elif notes:
+        resolved_category = categorize(notes)
+    if resolved_category:
+        doc["category"] = resolved_category
 
     result = await db["payments"].insert_one(doc)
     return {"status": "success", "payment_id": str(result.inserted_id)}
@@ -167,7 +194,64 @@ async def consultar_gasto(payment_id: str) -> dict:
     for key in ("payment_date", "due_date", "created_at"):
         if key in doc and hasattr(doc[key], "isoformat"):
             doc[key] = doc[key].isoformat()
+<<<<<<< Updated upstream
     return {"status": "success", "gasto": doc}
+=======
+    return {"status": "success", "expense": doc}
+
+
+async def update_expense(
+    payment_id: str,
+    status: str = None,
+    amount: float = None,
+    notes: str = None,
+    payment_date: str = None,
+    category: str = None,
+) -> dict:
+    """Actualiza un gasto existente por su ID. Usá esta tool para marcar pagos como 'paid', corregir montos, notas o categoría.
+    status puede ser: 'paid', 'pending', 'overdue'.
+    category (opcional): 'luz', 'gas', 'agua', 'impuesto', 'expensas', 'telefonia',
+    'subscription', 'comida', 'transporte', 'salud', 'otros'.
+    Solo se actualizan los campos que se pasen explícitamente."""
+    from bson import ObjectId
+    from bson.errors import InvalidId
+    from datetime import datetime
+
+    if not any([status, amount, notes, payment_date, category]):
+        return {"status": "error", "error_message": "Debés indicar al menos un campo para actualizar."}
+
+    db = get_db()
+    update: dict[str, Any] = {}
+    if status:
+        update["status"] = status
+    if amount is not None:
+        if amount <= 0:
+            return {"status": "error", "error_message": "El monto debe ser mayor a 0."}
+        update["amount"] = amount
+    if notes:
+        update["notes"] = notes
+        # Re-infer category when notes change unless caller passes one explicitly.
+        if not category:
+            update["category"] = categorize(notes)
+    if payment_date:
+        update["payment_date"] = datetime.fromisoformat(payment_date)
+    if category:
+        normalized = category.strip().lower()
+        if is_known_category(normalized):
+            update["category"] = normalized
+
+    try:
+        result = await db["payments"].update_one(
+            {"_id": ObjectId(payment_id), "user_id": current_user_id()},
+            {"$set": update},
+        )
+    except InvalidId:
+        return {"status": "error", "error_message": f"ID inválido: {payment_id}"}
+
+    if result.matched_count == 0:
+        return {"status": "error", "error_message": "Gasto no encontrado."}
+    return {"status": "success", "updated_fields": list(update.keys())}
+>>>>>>> Stashed changes
 
 
 async def get_monthly_summary(period: str) -> dict:

@@ -1,13 +1,20 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { api } from '$lib/api/client'
+<<<<<<< Updated upstream:frontend/src/routes/gastos/+page.svelte
     import type { Gasto } from '$lib/stores/gastos'
     import { Check, CheckCircle2 } from '@lucide/svelte'
+=======
+    import { Check, CheckCircle2, Plus } from '@lucide/svelte'
+    import ExpenseForm, { type ExpenseFormValue, type ExpenseFormSeed } from '$lib/components/ExpenseForm.svelte'
+    import ExpenseRowMenu from '$lib/components/ExpenseRowMenu.svelte'
+>>>>>>> Stashed changes:frontend/src/routes/expenses/+page.svelte
 
     let gastos = $state<Gasto[]>([])
     let cargando = $state(true)
     let error = $state('')
 
+<<<<<<< Updated upstream:frontend/src/routes/gastos/+page.svelte
     const colores: Record<string, string> = {
         luz:       'var(--cat-luz)',
         gas:       'var(--cat-gas)',
@@ -15,6 +22,20 @@
         impuesto:  'var(--cat-impuesto)',
         expensas:  'var(--cat-expensas)',
         telefonia: 'var(--cat-telefonia)',
+=======
+    const colors: Record<string, string> = {
+        luz:          'var(--cat-luz)',
+        gas:          'var(--cat-gas)',
+        agua:         'var(--cat-agua)',
+        impuesto:     'var(--cat-impuesto)',
+        expensas:     'var(--cat-expensas)',
+        telefonia:    'var(--cat-telefonia)',
+        subscription: 'var(--cat-subscription)',
+        comida:       'var(--cat-comida)',
+        transporte:   'var(--cat-transporte)',
+        salud:        'var(--cat-salud)',
+        otros:        'var(--cat-otros)',
+>>>>>>> Stashed changes:frontend/src/routes/expenses/+page.svelte
     }
 
     onMount(async () => {
@@ -32,6 +53,7 @@
         gastos = gastos.map(g => g.id === id ? { ...g, pagado: true } : g)
     }
 
+<<<<<<< Updated upstream:frontend/src/routes/gastos/+page.svelte
     let pendientes = $derived(gastos.filter(g => !g.pagado))
     let pagados    = $derived(gastos.filter(g =>  g.pagado))
     let totalMes   = $derived(gastos.reduce((acc, g) => acc + g.monto, 0))
@@ -39,6 +61,77 @@
 
 <div class="flex max-h-[calc(100vh-120px)] flex-col gap-4 overflow-y-auto p-4">
     {#if cargando}
+=======
+    // ─── Add / Edit / Delete state ──────────────────────────────────────────
+    let formOpen = $state(false)
+    let formMode = $state<'create' | 'edit'>('create')
+    let formSeed = $state<ExpenseFormSeed>({})
+    let editingId = $state<string | null>(null)
+
+    function openCreate() {
+        formMode = 'create'
+        formSeed = {}
+        editingId = null
+        formOpen = true
+    }
+
+    function openEdit(gasto: typeof appState.gastos[number]) {
+        formMode = 'edit'
+        editingId = gasto.id
+        formSeed = {
+            type:     gasto.tipo,
+            category: gasto.categoria,
+            amount:   gasto.monto,
+            date:     gasto.fecha,
+            due_date: gasto.vencimiento,
+            paid:     gasto.pagado,
+            notes:    gasto.notas,
+        }
+        formOpen = true
+    }
+
+    async function handleSubmit(value: ExpenseFormValue) {
+        if (formMode === 'edit' && editingId) {
+            await api.updateExpense(editingId, {
+                type:     value.type,
+                category: value.category,
+                amount:   value.amount,
+                date:     value.date,
+                due_date: value.due_date ?? null,
+                paid:     value.paid,
+                notes:    value.notes ?? null,
+            })
+        } else {
+            await api.createExpense({
+                type:     value.type,
+                category: value.category,
+                amount:   value.amount,
+                date:     value.date,
+                due_date: value.due_date,
+                paid:     value.paid,
+                notes:    value.notes,
+            })
+        }
+        // appState.invalidar() is triggered automatically by the WRITE_PATHS hook in the API client.
+    }
+
+    async function handleDelete(gasto: typeof appState.gastos[number]) {
+        const ok = window.confirm(`¿Eliminar "${gasto.tipo}"? Esta acción no se puede deshacer.`)
+        if (!ok) return
+        await api.deleteExpense(gasto.id)
+    }
+
+    const gastos     = $derived(appState.gastos)
+    const cargando   = $derived(appState.cargando)
+    const error      = $derived(appState.error)
+    const pendientes = $derived(gastos.filter((g) => !g.pagado))
+    const pagados    = $derived(gastos.filter((g) =>  g.pagado))
+    const totalMes   = $derived(gastos.reduce((acc: number, g) => acc + g.monto, 0))
+</script>
+
+<div class="relative flex max-h-[calc(100vh-120px)] flex-col gap-4 overflow-y-auto p-4 pb-24">
+    {#if cargando && gastos.length === 0}
+>>>>>>> Stashed changes:frontend/src/routes/expenses/+page.svelte
         <div class="py-8 text-center text-sm text-muted-foreground">
             Cargando gastos...
         </div>
@@ -74,19 +167,23 @@
                         <div
                             class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-foreground/20"
                         >
-                            <div class="flex items-center gap-3">
+                            <div class="flex min-w-0 items-center gap-3">
                                 <div
                                     class="h-10 w-1 shrink-0 rounded-full"
+<<<<<<< Updated upstream:frontend/src/routes/gastos/+page.svelte
                                     style="background: {colores[gasto.categoria] ?? 'var(--cat-expensas)'};"
+=======
+                                    style="background: {colors[gasto.categoria] ?? colors.otros};"
+>>>>>>> Stashed changes:frontend/src/routes/expenses/+page.svelte
                                 ></div>
-                                <div>
-                                    <p class="text-sm font-medium">{gasto.tipo}</p>
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-medium">{gasto.tipo}</p>
                                     <p class="mt-0.5 text-xs text-muted-foreground">
                                         Vence {gasto.vencimiento ?? gasto.fecha}
                                     </p>
                                 </div>
                             </div>
-                            <div class="flex items-center gap-3">
+                            <div class="flex shrink-0 items-center gap-2">
                                 <p class="font-semibold">${gasto.monto.toLocaleString('es-AR')}</p>
                                 <button
                                     onclick={() => marcarPagado(gasto.id)}
@@ -94,6 +191,10 @@
                                 >
                                     <Check class="size-3.5" /> Pagar
                                 </button>
+                                <ExpenseRowMenu
+                                    onEdit={() => openEdit(gasto)}
+                                    onDelete={() => handleDelete(gasto)}
+                                />
                             </div>
                         </div>
                     {/each}
@@ -112,19 +213,29 @@
                         <div
                             class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 opacity-60 shadow-sm transition-opacity hover:opacity-100"
                         >
-                            <div class="flex items-center gap-3">
+                            <div class="flex min-w-0 items-center gap-3">
                                 <div
                                     class="h-10 w-1 shrink-0 rounded-full"
+<<<<<<< Updated upstream:frontend/src/routes/gastos/+page.svelte
                                     style="background: {colores[gasto.categoria] ?? 'var(--cat-expensas)'};"
+=======
+                                    style="background: {colors[gasto.categoria] ?? colors.otros};"
+>>>>>>> Stashed changes:frontend/src/routes/expenses/+page.svelte
                                 ></div>
-                                <div>
-                                    <p class="text-sm font-medium">{gasto.tipo}</p>
+                                <div class="min-w-0">
+                                    <p class="truncate text-sm font-medium">{gasto.tipo}</p>
                                     <p class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
                                         Pagado {gasto.fecha} <CheckCircle2 class="size-3" />
                                     </p>
                                 </div>
                             </div>
-                            <p class="font-semibold">${gasto.monto.toLocaleString('es-AR')}</p>
+                            <div class="flex shrink-0 items-center gap-2">
+                                <p class="font-semibold">${gasto.monto.toLocaleString('es-AR')}</p>
+                                <ExpenseRowMenu
+                                    onEdit={() => openEdit(gasto)}
+                                    onDelete={() => handleDelete(gasto)}
+                                />
+                            </div>
                         </div>
                     {/each}
                 </div>
@@ -132,9 +243,39 @@
         {/if}
 
         {#if gastos.length === 0}
-            <div class="py-12 text-center text-sm text-muted-foreground">
-                No hay gastos registrados. ¡Usá el chat para agregar uno!
+            <div class="flex flex-col items-center gap-3 py-12 text-center text-sm text-muted-foreground">
+                <p>No hay gastos registrados.</p>
+                <button
+                    type="button"
+                    onclick={openCreate}
+                    class="inline-flex items-center gap-1.5 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-all hover:bg-primary/90 active:scale-95"
+                >
+                    <Plus class="size-4" /> Agregar primer gasto
+                </button>
+                <p class="text-xs">O usá el chat para cargar uno con lenguaje natural.</p>
             </div>
         {/if}
     {/if}
 </div>
+<<<<<<< Updated upstream:frontend/src/routes/gastos/+page.svelte
+=======
+
+<!-- Floating Action Button: Add expense -->
+<button
+    type="button"
+    onclick={openCreate}
+    aria-label="Agregar gasto"
+    title="Agregar gasto"
+    class="fixed bottom-20 left-1/2 z-20 flex size-14 -translate-x-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl active:scale-95 sm:left-auto sm:right-[max(1.5rem,calc(50%-16rem))] sm:translate-x-0"
+>
+    <Plus class="size-6" />
+</button>
+
+<!-- Add / Edit modal -->
+<ExpenseForm
+    bind:open={formOpen}
+    mode={formMode}
+    seed={formSeed}
+    onSubmit={handleSubmit}
+/>
+>>>>>>> Stashed changes:frontend/src/routes/expenses/+page.svelte

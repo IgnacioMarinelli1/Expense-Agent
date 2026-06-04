@@ -1,6 +1,40 @@
 // URL del backend — cuando Dev 2 tenga el servidor listo, cambiás esta línea
 const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
 
+<<<<<<< Updated upstream
+=======
+// ─── Paths que modifican la DB ────────────────────────────────────────────────
+const WRITE_PATHS = [
+    '/expenses',         // POST crear, PUT editar, DELETE eliminar, PATCH /:id/pay
+    '/agent/message',    // POST chat (puede crear gastos internamente)
+    '/agent/audio',      // POST audio
+    '/agent/image',      // POST imagen
+    // Legacy aliases — kept for backward compatibility
+    '/gastos',
+    '/agente/mensaje',
+    '/agente/audio',
+    '/agente/imagen',
+]
+
+function esEscritura(method: string, path: string): boolean {
+    const m = method.toUpperCase()
+    if (m === 'GET') return false
+    return WRITE_PATHS.some(p => path.startsWith(p))
+}
+
+// Importación lazy para evitar ciclos de dependencia
+async function dispararRefetch() {
+    try {
+        const { invalidar } = await import('$lib/stores/appState.svelte')
+        await invalidar()
+    } catch {
+        // silencioso — no rompe la operación principal
+    }
+}
+
+// ─── Tipos ────────────────────────────────────────────────────────────────────
+
+>>>>>>> Stashed changes
 type StreamHandlers = {
     onToken: (text: string) => void
     onError?: (message: string) => void
@@ -92,6 +126,29 @@ export const api = {
     marcarPagado(id: string) {
         return request(`/gastos/${id}/pagar`, {
             method: 'PATCH'
+        })
+    },
+
+    // Editar un gasto existente
+    updateExpense(id: string, datos: {
+        type?: string
+        category?: string
+        amount?: number
+        date?: string
+        due_date?: string | null
+        paid?: boolean
+        notes?: string | null
+    }) {
+        return request(`/expenses/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify(datos)
+        })
+    },
+
+    // Eliminar un gasto
+    deleteExpense(id: string) {
+        return request<{ deleted: string }>(`/expenses/${id}`, {
+            method: 'DELETE'
         })
     },
 
