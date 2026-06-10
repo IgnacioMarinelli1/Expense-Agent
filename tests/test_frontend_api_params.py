@@ -9,13 +9,6 @@ class FrontendApiParamsTest(unittest.TestCase):
         self.assertIn("?month=${mes}", client)
         self.assertNotIn("?mes=${mes}", client)
 
-    def test_frontend_dashboard_uses_backend_month_query_param(self):
-        client = Path("frontend/src/lib/api/client.ts").read_text(encoding="utf-8")
-
-        self.assertIn("getDashboard(filters", client)
-        self.assertIn("params.set('month', filters.month)", client)
-        self.assertIn("`/dashboard${query}`", client)
-
     def test_frontend_audio_client_matches_backend_response_key(self):
         client = Path("frontend/src/lib/api/client.ts").read_text(encoding="utf-8")
 

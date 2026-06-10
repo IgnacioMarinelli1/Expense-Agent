@@ -131,11 +131,6 @@ Important fields:
 - period: accounting period in YYYY-MM format. Infer it from payment_date/due_date or the mentioned month.
 - status: "paid" if already paid/spent; "pending" if still needs to be paid; "overdue" if past due.
 - notes: brief human description. ALWAYS include this — it's what appears in the expense list UI.
-- category: optional personal-finance category for dashboard analysis. Prefer one of: Comida / Supermercado, Transporte, Servicios, Vivienda, Salud, Educación, Ocio, Ropa, Deudas / cuotas, Ahorro / inversión, Otros.
-- subcategory: optional finer detail, e.g. "delivery", "nafta", "internet".
-- payment_method: optional payment method, e.g. cash, debit, credit, transfer.
-- account: optional account/wallet/card name if the user mentions it.
-- is_fixed: true for fixed or recurrent payments; false for variable one-off spending.
 - service_id: if this payment corresponds to a saved service, pass the service id.
 - input_method: "manual" unless context indicates another channel.
 

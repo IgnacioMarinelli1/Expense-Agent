@@ -10,14 +10,13 @@ from routes.payments import router as payments_router
 from routes.users import router as users_router
 from routes.frontend_compat import router as compat_router
 from routes.agent import router as agent_router
-from routes.dashboard import router as dashboard_router
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     db = get_db()
     app.state.db = db
-    for collection in ("users", "properties", "services", "payments", "monthly_finances", "category_budgets"):
+    for collection in ("users", "properties", "services", "payments", "monthly_finances"):
         await safe_create_collection(db, collection)
     yield
     close_connection()
@@ -35,7 +34,6 @@ app.add_middleware(
 app.include_router(health_router)
 app.include_router(agent_router)
 app.include_router(compat_router)
-app.include_router(dashboard_router)
 app.include_router(summary_router)   # before payments to avoid /{payment_id} clash
 app.include_router(payments_router)
 app.include_router(users_router)

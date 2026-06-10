@@ -13,11 +13,6 @@ class PaymentCreate(BaseModel):
     due_date: Optional[datetime] = None
     status: Literal["pending", "paid", "overdue"] = "pending"
     period: Optional[str] = None
-    category: Optional[str] = None
-    subcategory: Optional[str] = None
-    payment_method: Optional[str] = None
-    account: Optional[str] = None
-    is_fixed: Optional[bool] = None
     input_method: Literal["manual", "email"] = "manual"
     notes: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
@@ -31,11 +26,6 @@ class PaymentUpdate(BaseModel):
     due_date: Optional[datetime] = None
     status: Optional[Literal["pending", "paid", "overdue"]] = None
     period: Optional[str] = None
-    category: Optional[str] = None
-    subcategory: Optional[str] = None
-    payment_method: Optional[str] = None
-    account: Optional[str] = None
-    is_fixed: Optional[bool] = None
     notes: Optional[str] = None
     metadata: Optional[dict[str, Any]] = None
     ai_extracted: Optional[dict[str, Any]] = None

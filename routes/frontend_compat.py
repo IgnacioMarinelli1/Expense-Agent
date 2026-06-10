@@ -31,32 +31,6 @@ def _fmt(dt) -> Optional[str]:
     return dt.strftime("%d/%m")
 
 
-def _period_from_date(dt: datetime) -> str:
-    return f"{dt.year}-{dt.month:02d}"
-
-
-def _period_bounds(period: str) -> tuple[datetime, datetime]:
-    year, month = [int(part) for part in period.split("-")]
-    start = datetime(year, month, 1)
-    if month == 12:
-        return start, datetime(year + 1, 1, 1)
-    return start, datetime(year, month + 1, 1)
-
-
-def _payment_period_query(user_id: str, period: str) -> dict:
-    start, end = _period_bounds(period)
-    by_date = {"payment_date": {"$gte": start, "$lt": end}}
-    return {
-        "user_id": user_id,
-        "$or": [
-            {"period": period},
-            {"period": {"$exists": False}, **by_date},
-            {"period": None, **by_date},
-            {"period": "", **by_date},
-        ],
-    }
-
-
 def _category(expense_type: str) -> str:
     t = expense_type.lower()
     if any(k in t for k in ["luz", "electr", "edesur", "edenor"]):
@@ -67,17 +41,11 @@ def _category(expense_type: str) -> str:
         return "agua"
     if any(k in t for k in ["abl", "impuest", "municipal", "tasa"]):
         return "impuesto"
-    if any(k in t for k in ["expensa", "admin", "administracion", "renta", "inmueble", "consorcio", "depto", "departamento"]):
+    if any(k in t for k in ["expensa", "admin"]):
         return "expensas"
     if any(k in t for k in ["internet", "wifi", "tel", "cable", "movistar", "claro", "personal"]):
         return "telefonia"
     return "expensas"
-
-
-def _compat_category(doc: dict, expense_type: str) -> str:
-    if doc.get("category"):
-        return doc["category"]
-    return _category(expense_type)
 
 
 def _to_expense(doc: dict) -> dict:
@@ -95,7 +63,7 @@ def _to_expense(doc: dict) -> dict:
     return {
         "id": str(doc["_id"]),
         "type": expense_type,
-        "category": _compat_category(doc, expense_type),
+        "category": _category(expense_type),
         "amount": doc.get("amount", 0),
         "date": _fmt(doc.get("payment_date")),
         "due_date": _fmt(doc.get("due_date")),
@@ -109,7 +77,7 @@ async def get_expenses(month: Optional[str] = Query(None)):
     db = get_db()
     query: dict = {"user_id": current_user_id()}
     if month:
-        query = _payment_period_query(current_user_id(), month)
+        query["period"] = month
     cursor = db["payments"].find(query).sort("payment_date", -1)
     docs = await cursor.to_list(length=100)
     return [_to_expense(doc) for doc in docs]
@@ -118,17 +86,13 @@ async def get_expenses(month: Optional[str] = Query(None)):
 @router.post("/expenses", status_code=201)
 async def create_expense(body: dict):
     db = get_db()
-    payment_date = _parse_date(body["date"]) if body.get("date") else None
-    if payment_date is None:
-        payment_date = datetime.utcnow()
     doc = {
         "user_id": current_user_id(),
         "amount": float(body.get("amount", 0)),
         "currency": "ARS",
         "notes": body.get("type", ""),
         "status": "paid" if body.get("paid") else "pending",
-        "payment_date": payment_date,
-        "period": _period_from_date(payment_date),
+        "payment_date": _parse_date(body["date"]) if body.get("date") else datetime.utcnow(),
         "input_method": "manual",
         "created_at": datetime.utcnow(),
     }
@@ -162,7 +126,7 @@ async def get_summary(month: Optional[str] = Query(None)):
     db = get_db()
     match: dict = {"user_id": current_user_id()}
     if month:
-        match = _payment_period_query(current_user_id(), month)
+        match["period"] = month
     pipeline = [
         {"$match": match},
         {

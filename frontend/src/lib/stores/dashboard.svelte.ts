@@ -90,8 +90,199 @@ export interface DashboardData {
     filters: DashboardFilterOptions
 }
 
+type LegacyExpense = {
+    id: string
+    type: string
+    category: string
+    amount: number
+    date?: string | null
+    due_date?: string | null
+    paid: boolean
+    notes?: string | null
+}
+
+const CATEGORY_LABELS = [
+    'Comida / Supermercado',
+    'Transporte',
+    'Servicios',
+    'Vivienda',
+    'Salud',
+    'Educacion',
+    'Ocio',
+    'Ropa',
+    'Deudas / cuotas',
+    'Ahorro / inversion',
+    'Otros',
+]
+
+const CATEGORY_COLORS: Record<string, string> = {
+    'Comida / Supermercado': '#22c55e',
+    Transporte: '#3b82f6',
+    Servicios: '#06b6d4',
+    Vivienda: '#8b5cf6',
+    Salud: '#ef4444',
+    Educacion: '#f59e0b',
+    Ocio: '#ec4899',
+    Ropa: '#14b8a6',
+    'Deudas / cuotas': '#f97316',
+    'Ahorro / inversion': '#10b981',
+    Otros: '#64748b',
+}
+
 function currentMonth() {
     return new Date().toISOString().slice(0, 7)
+}
+
+function previousMonth(period: string) {
+    const [year, month] = period.split('-').map(Number)
+    if (month === 1) return `${year - 1}-12`
+    return `${year}-${String(month - 1).padStart(2, '0')}`
+}
+
+function daysInMonth(period: string) {
+    const [year, month] = period.split('-').map(Number)
+    return new Date(year, month, 0).getDate()
+}
+
+function analysisDayCount(period: string) {
+    const today = new Date()
+    const current = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+    return period === current ? Math.max(1, today.getDate()) : daysInMonth(period)
+}
+
+function roundMoney(value: number) {
+    return Math.round((value + Number.EPSILON) * 100) / 100
+}
+
+function normalizeCategory(raw: string | null | undefined, description = '') {
+    const text = (raw ?? '').trim()
+    if (CATEGORY_LABELS.includes(text)) return text
+
+    const haystack = `${text} ${description}`.toLowerCase()
+    if (['super', 'mercado', 'comida', 'restaurant', 'delivery', 'verduleria', 'cafe'].some((k) => haystack.includes(k))) return 'Comida / Supermercado'
+    if (['taxi', 'uber', 'nafta', 'sube', 'colectivo', 'tren', 'transporte'].some((k) => haystack.includes(k))) return 'Transporte'
+    if (['luz', 'gas', 'agua', 'internet', 'telefono', 'telefonia', 'wifi', 'edenor', 'edesur'].some((k) => haystack.includes(k))) return 'Servicios'
+    if (['alquiler', 'expensa', 'renta', 'inmueble', 'admin', 'consorcio', 'depto', 'vivienda', 'hipoteca'].some((k) => haystack.includes(k))) return 'Vivienda'
+    if (['farmacia', 'medico', 'salud', 'prepaga', 'hospital'].some((k) => haystack.includes(k))) return 'Salud'
+    if (['curso', 'educacion', 'universidad', 'colegio', 'libro'].some((k) => haystack.includes(k))) return 'Educacion'
+    if (['cine', 'bar', 'netflix', 'spotify', 'ocio', 'juego', 'gaming', 'subscription'].some((k) => haystack.includes(k))) return 'Ocio'
+    if (['ropa', 'zapatilla', 'indumentaria'].some((k) => haystack.includes(k))) return 'Ropa'
+    if (['deuda', 'cuota', 'prestamo', 'tarjeta'].some((k) => haystack.includes(k))) return 'Deudas / cuotas'
+    if (['ahorro', 'inversion', 'fci', 'plazo fijo'].some((k) => haystack.includes(k))) return 'Ahorro / inversion'
+    return 'Otros'
+}
+
+function isoDateFromLegacy(value: string | null | undefined, period: string) {
+    if (!value) return `${period}-01`
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+
+    const [day, month] = value.split('/')
+    const year = period.slice(0, 4)
+    if (!day || !month) return `${period}-01`
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
+}
+
+function buildDashboard(
+    period: string,
+    expensesRaw: LegacyExpense[],
+    previousTotal: number,
+    summaryTotal: number,
+    filters: DashboardQuery,
+): DashboardData {
+    const allMovements = expensesRaw.map((expense) => {
+        const category = normalizeCategory(expense.category, expense.type)
+        return {
+            id: expense.id,
+            fecha: isoDateFromLegacy(expense.date, period),
+            tipo: 'gasto' as const,
+            categoria: category,
+            subcategoria: expense.category,
+            descripcion: expense.type,
+            medioPago: null,
+            cuenta: null,
+            monto: Number(expense.amount ?? 0),
+            esFijo: false,
+            createdAt: null,
+            updatedAt: null,
+        }
+    })
+
+    let movements = allMovements
+    if (filters.category) movements = movements.filter((item) => item.categoria === filters.category)
+    if (filters.type === 'income') movements = []
+
+    const expenses = roundMoney(summaryTotal || allMovements.reduce((sum, item) => sum + item.monto, 0))
+    const visibleExpenses = roundMoney(movements.reduce((sum, item) => sum + item.monto, 0))
+    const dayCount = analysisDayCount(period)
+    const dailyAverage = roundMoney(expenses / dayCount)
+    const projected = roundMoney(dailyAverage * daysInMonth(period))
+
+    const categoryTotals = new Map<string, DashboardCategory>()
+    for (const movement of movements) {
+        const item = categoryTotals.get(movement.categoria) ?? {
+            category: movement.categoria,
+            amount: 0,
+            count: 0,
+            color: CATEGORY_COLORS[movement.categoria] ?? CATEGORY_COLORS.Otros,
+        }
+        item.amount = roundMoney(item.amount + movement.monto)
+        item.count += 1
+        categoryTotals.set(movement.categoria, item)
+    }
+
+    const byDate = new Map<string, number>()
+    for (const movement of movements) {
+        byDate.set(movement.fecha, roundMoney((byDate.get(movement.fecha) ?? 0) + movement.monto))
+    }
+
+    let cumulative = 0
+    const evolution = [...byDate.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([date, amount]) => {
+        cumulative = roundMoney(cumulative + amount)
+        return { date, amount, cumulative }
+    })
+
+    const budgets = CATEGORY_LABELS.map((category) => ({
+        category,
+        budgeted: null,
+        spent: roundMoney(categoryTotals.get(category)?.amount ?? 0),
+        remaining: null,
+        used_pct: null,
+        status: 'unset' as BudgetStatus,
+    }))
+
+    const delta = roundMoney(expenses - previousTotal)
+    const deltaPct = previousTotal ? roundMoney((delta / previousTotal) * 100) : null
+
+    return {
+        summary: {
+            period,
+            income: 0,
+            expenses: visibleExpenses || expenses,
+            available_balance: -expenses,
+            monthly_savings: 0,
+            budget: null,
+            budget_used_pct: null,
+            daily_average_expense: dailyAverage,
+            previous_month_expenses: previousTotal,
+            month_over_month_delta: delta,
+            month_over_month_delta_pct: deltaPct,
+            projected_month_expense: projected,
+            fixed_expenses: 0,
+            variable_expenses: expenses,
+        },
+        categories: [...categoryTotals.values()].sort((a, b) => b.amount - a.amount),
+        evolution,
+        budgets,
+        movements: [...movements].sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 50),
+        topExpenses: [...movements].sort((a, b) => b.monto - a.monto).slice(0, 5),
+        alerts: [],
+        filters: {
+            categories: [...new Set(allMovements.map((item) => item.categoria))].sort(),
+            paymentMethods: [],
+            accounts: [],
+            types: ['all', 'expense', 'income'],
+        },
+    }
 }
 
 const emptyData: DashboardData = {
@@ -130,7 +321,19 @@ export async function loadDashboard(nextFilters?: Partial<DashboardQuery>) {
     _loading = true
     _error = ''
     try {
-        _data = await api.getDashboard(_filters)
+        const [expensesRaw, summaryRaw, previousSummaryRaw] = await Promise.all([
+            api.getExpenses(_filters.month),
+            api.getSummary(_filters.month),
+            api.getSummary(previousMonth(_filters.month)),
+        ])
+
+        _data = buildDashboard(
+            _filters.month,
+            expensesRaw as LegacyExpense[],
+            Number(previousSummaryRaw.total ?? 0),
+            Number(summaryRaw.total ?? 0),
+            _filters,
+        )
     } catch (error) {
         _error = error instanceof Error ? error.message : 'No se pudo cargar el dashboard'
     } finally {
