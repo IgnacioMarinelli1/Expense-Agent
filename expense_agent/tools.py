@@ -36,6 +36,11 @@ async def save_expense(
     notes: str = None,
     period: str = None,
     status: str = "pending",
+    category: str = None,
+    subcategory: str = None,
+    payment_method: str = None,
+    account: str = None,
+    is_fixed: bool = None,
     input_method: str = "manual",
     service_id: str = None,
     property_id: str = None,
@@ -83,6 +88,11 @@ async def save_expense(
     if due_date:    doc["due_date"] = datetime.fromisoformat(due_date)
     if notes:       doc["notes"] = notes
     if period:      doc["period"] = period
+    if category:    doc["category"] = category
+    if subcategory: doc["subcategory"] = subcategory
+    if payment_method: doc["payment_method"] = payment_method
+    if account:     doc["account"] = account
+    if is_fixed is not None: doc["is_fixed"] = is_fixed
     if service_id:  doc["service_id"] = service_id
     if property_id: doc["property_id"] = property_id
 

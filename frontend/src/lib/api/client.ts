@@ -5,11 +5,13 @@ const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' 
 
 // ─── Paths que modifican la DB ────────────────────────────────────────────────
 const WRITE_PATHS = [
-    '/gastos',           // POST crear gasto
-    '/gastos/',          // PATCH marcar pagado
-    '/agente/mensaje',   // POST chat (puede crear gastos internamente)
-    '/agente/audio',     // POST audio
-    '/agente/imagen',    // POST imagen
+    '/expenses',
+    '/expenses/',
+    '/payments',
+    '/payments/',
+    '/agent/message',
+    '/agent/audio',
+    '/agent/image',
 ]
 
 function esEscritura(method: string, path: string): boolean {
@@ -23,6 +25,8 @@ async function dispararRefetch() {
     try {
         const { invalidar } = await import('$lib/stores/appState.svelte')
         await invalidar()
+        const dashboard = await import('$lib/stores/dashboard.svelte')
+        await dashboard.loadDashboard()
     } catch {
         // silencioso — no rompe la operación principal
     }
@@ -115,6 +119,23 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
 // ── Gastos ──────────────────────────────────────────
 
 export const api = {
+    getDashboard(filters?: {
+        month?: string
+        category?: string
+        payment_method?: string
+        account?: string
+        type?: 'all' | 'expense' | 'income'
+    }) {
+        const params = new URLSearchParams()
+        if (filters?.month) params.set('month', filters.month)
+        if (filters?.category) params.set('category', filters.category)
+        if (filters?.payment_method) params.set('payment_method', filters.payment_method)
+        if (filters?.account) params.set('account', filters.account)
+        if (filters?.type && filters.type !== 'all') params.set('type', filters.type)
+        const query = params.toString() ? `?${params.toString()}` : ''
+        return request<any>(`/dashboard${query}`)
+    },
+
     // Obtener todos los gastos del mes
     getExpenses(mes?: string) {
         const query = mes ? `?month=${mes}` : ''

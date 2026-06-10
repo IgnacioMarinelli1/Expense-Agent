@@ -55,6 +55,11 @@ class PaymentSchema(TypedDict):
     due_date: datetime     # Due date of the payment
     status: str            # Current status (e.g., 'pending', 'paid', 'overdue')
     period: str            # Billing period (e.g., '2026-05', 'May 2026')
+    category: Optional[str] # Normalized personal-finance category for dashboard views
+    subcategory: Optional[str] # Optional finer category detail
+    payment_method: Optional[str] # Payment method (cash, debit, credit, transfer, etc.)
+    account: Optional[str] # Account or wallet used for the movement
+    is_fixed: Optional[bool] # Whether the payment is fixed/recurrent
     input_method: str      # How the payment was loaded (e.g., 'manual', 'email')
     notes: Optional[str]   # Any extra user notes
     metadata: dict[str, Any]      # Extra system/integrations metadata
@@ -76,3 +81,18 @@ class MonthlyFinanceSchema(TypedDict):
     notes: Optional[str]   # Optional context from the user
     created_at: datetime   # Timestamp when the record was created
     updated_at: datetime   # Timestamp when the record was last updated
+
+
+class CategoryBudgetSchema(TypedDict):
+    """
+    Schema for the 'category_budgets' collection.
+    Stores the planned amount per category for a specific accounting period.
+    """
+    _id: ObjectId
+    user_id: UserSchema['_id']
+    period: str
+    category: str
+    amount: float
+    currency: str
+    created_at: datetime
+    updated_at: datetime

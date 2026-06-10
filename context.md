@@ -76,7 +76,8 @@ Expense-Agent/
 │
 ├── routes/
 │   ├── agent.py                     # /agent/* endpoints (SSE streaming) + spreadsheet parsing
-│   ├── frontend_compat.py           # /expenses, /summary (para el dashboard)
+│   ├── frontend_compat.py           # /expenses, /summary (compat frontend)
+│   ├── dashboard.py                 # /dashboard (dashboard personal agregado)
 │   ├── payments.py                  # CRUD de pagos
 │   ├── users.py                     # CRUD de usuarios
 │   ├── summary.py                   # Endpoint de resumen
@@ -101,7 +102,8 @@ Expense-Agent/
 │       ├── stores/expenses.ts       # Svelte stores: messages, expenses, TraceStep
 │       └── components/
 │           ├── ThinkingSteps.svelte # Componente de thinking steps
-│           └── ChatChart.svelte     # Render ECharts/ECharts GL en chat
+│           ├── ChatChart.svelte     # Render ECharts/ECharts GL en chat
+│           └── dashboard/*          # Componentes del dashboard personal
 ```
 
 ---
@@ -227,6 +229,7 @@ Catálogo fallback:
 ```
 user_id, amount, currency, payment_date (datetime|ISO string),
 due_date, status (paid|pending|overdue), notes, period (YYYY-MM),
+category, subcategory, payment_method, account, is_fixed,
 service_id, property_id, input_method, metadata, ai_extracted, created_at
 ```
 
@@ -245,6 +248,13 @@ created_at, updated_at
 ```
 
 El agente usa esta colección para registrar frases como "mi sueldo este mes es X" o "quiero gastar máximo Y" y para responder "cómo vengo con el presupuesto" cruzándolo con `payments`.
+
+### `category_budgets` — presupuestos por categoria
+```
+user_id, period (YYYY-MM), category, amount, currency, created_at, updated_at
+```
+
+El dashboard usa esta coleccion para comparar gasto real contra presupuesto por categoria. Si una categoria no tiene presupuesto definido, se muestra con estado `unset`.
 
 ### `users`, `properties`
 Existen como soporte para una etapa posterior. Hoy no son el centro del flujo.
@@ -354,6 +364,7 @@ MDB_MCP_CONNECTION_STRING=<MONGO_URI>
 | POST | `/expenses` | Crea gasto manualmente desde frontend |
 | PATCH | `/expenses/{id}/pay` | Marca gasto como pagado |
 | GET | `/summary?month=YYYY-MM` | Resumen para dashboard |
+| GET | `/dashboard?month=YYYY-MM` | Dashboard personal completo: KPIs, categorias, evolucion, presupuestos, movimientos y alertas |
 | CRUD | `/payments/*` | CRUD genérico de pagos |
 | GET | `/payments/summary/?user_id=...&period=YYYY-MM` | Resumen genérico por status |
 | POST/GET | `/users/*` | CRUD mínimo de usuarios |
@@ -409,7 +420,11 @@ Chat principal. Es la experiencia primaria del producto.
 Lista gastos desde `GET /expenses`, separa pendientes y pagados, y permite marcar un pendiente como pagado con `PATCH /expenses/{id}/pay`.
 
 ### `/dashboard`
-Dashboard básico para el mes actual. Consume `GET /summary?month=YYYY-MM`. Tiene tarjetas de gastado, pendiente y pagos; gráfico por categoría y calendario siguen como placeholders.
+Dashboard personal completo. Consume `GET /dashboard?month=YYYY-MM` y muestra:
+- Resumen mensual: ingresos, gastos, saldo, ahorro, presupuesto usado y promedio diario.
+- Gastos por categoria con dona y evolucion diaria/acumulada.
+- Presupuesto por categoria vs gasto real con estados `ok`, `warning`, `exceeded` y `unset`.
+- Alertas, top 5 gastos y tabla de ultimos movimientos normalizados.
 
 ---
 
@@ -436,8 +451,8 @@ El `_image_content` en `routes/agent.py` detecta el MIME y desvía a `spreadshee
 ## Estado Actual y Deuda Conocida
 
 - No hay login ni multiusuario real; en Cloud Run los servicios se despliegan cerrados por IAM y el tenant de app se configura server-side con `EXPENSE_AGENT_USER_ID`.
-- La categorización del frontend compat es heurística por texto (`luz`, `gas`, `agua`, etc.).
-- El dashboard todavía no implementa gráficos ni calendario real.
+- La categorizacion conserva fallback heuristico por texto, pero el dashboard prioriza `payments.category` y `services.category`.
+- Los filtros por medio de pago y cuenta dependen de que nuevos pagos empiecen a guardar `payment_method` y `account`.
 - Los gráficos generados por agente viven en el chat; el dashboard sigue separado y básico.
 - `sessions.db` es estado local de ADK. Puede cambiar al usar el agente.
 - Hay dos lockfiles en frontend (`package-lock.json` y `pnpm-lock.yaml`) porque el proyecto se puede levantar con npm o pnpm; hoy los scripts documentados usan npm.
