@@ -240,14 +240,27 @@ export const api = {
         return res.json() as Promise<{ response: string }>
     },
 
-    streamImage(file: File, handlers: StreamHandlers) {
+    streamImage(file: File, handlers: StreamHandlers, caption?: string) {
         const form = new FormData()
         form.append('image', file)
+        if (caption?.trim()) form.append('caption', caption.trim())
 
         return streamRequest('/agent/image/stream', {
             method: 'POST',
             body: form,
         }, handlers)
+    },
+
+    getIncome(mes?: string) {
+        const query = mes ? `?month=${mes}` : ''
+        return request<Array<{
+            id: string
+            description: string
+            amount: number
+            currency: string
+            date: string | null
+            period: string
+        }>>(`/income${query}`)
     },
 
     getFinance(mes?: string) {
@@ -256,6 +269,7 @@ export const api = {
             period: string
             salary: number | null
             budget: number | null
+            cobrado: number
             currency: string
             notes: string | null
         }>(`/finance${query}`)

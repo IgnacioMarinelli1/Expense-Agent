@@ -90,11 +90,20 @@
         await api.deleteExpense(gasto.id)
     }
 
+    const LIMITE = 10
+    let showAll = $state(false)
+
     const gastos = $derived(appState.gastos)
     const cargando = $derived(appState.cargando)
     const error = $derived(appState.error)
     const pendientes = $derived(gastos.filter((g) => !g.pagado))
     const pagados = $derived(gastos.filter((g) => g.pagado))
+    // Pendientes primero, luego pagados — mostrar hasta LIMITE total
+    const todosOrdenados = $derived([...pendientes, ...pagados])
+    const mostrados = $derived(showAll ? todosOrdenados : todosOrdenados.slice(0, LIMITE))
+    const pendientesMostrados = $derived(mostrados.filter((g) => !g.pagado))
+    const pagadosMostrados = $derived(mostrados.filter((g) => g.pagado))
+    const hayMas = $derived(!showAll && todosOrdenados.length > LIMITE)
     // Sumamos en ARS base (cada gasto puede estar en otra moneda) y formateamos en la de visualizacion.
     const totalMesArs = $derived(gastos.reduce((acc: number, g) => acc + toArs(g.monto, g.moneda), 0))
 </script>
@@ -122,13 +131,13 @@
             </div>
         </div>
 
-        {#if pendientes.length > 0}
+        {#if pendientesMostrados.length > 0}
             <section>
                 <h2 class="mb-2 text-xs font-medium text-muted-foreground">
                     Pendientes
                 </h2>
                 <div class="flex flex-col gap-2">
-                    {#each pendientes as gasto (gasto.id)}
+                    {#each pendientesMostrados as gasto (gasto.id)}
                         <div class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 shadow-sm transition-colors hover:border-foreground/20">
                             <div class="flex min-w-0 items-center gap-3">
                                 <div
@@ -166,13 +175,13 @@
             </section>
         {/if}
 
-        {#if pagados.length > 0}
+        {#if pagadosMostrados.length > 0}
             <section>
                 <h2 class="mb-2 text-xs font-medium text-muted-foreground">
                     Pagados este mes
                 </h2>
                 <div class="flex flex-col gap-2">
-                    {#each pagados as gasto (gasto.id)}
+                    {#each pagadosMostrados as gasto (gasto.id)}
                         <div class="flex items-center justify-between gap-3 rounded-xl border border-border bg-card p-4 opacity-60 shadow-sm transition-opacity hover:opacity-100">
                             <div class="flex min-w-0 items-center gap-3">
                                 <div
@@ -199,6 +208,16 @@
             </section>
         {/if}
 
+        {#if hayMas}
+            <button
+                type="button"
+                onclick={() => showAll = true}
+                class="w-full rounded-xl border border-border bg-card py-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+            >
+                Ver los {todosOrdenados.length - LIMITE} restantes
+            </button>
+        {/if}
+
         {#if gastos.length === 0}
             <div class="flex flex-col items-center gap-3 py-12 text-center text-sm text-muted-foreground">
                 <p>No hay gastos registrados.</p>
@@ -215,15 +234,6 @@
     {/if}
 </div>
 
-<button
-    type="button"
-    onclick={openCreate}
-    aria-label="Agregar gasto"
-    title="Agregar gasto"
-    class="fixed bottom-20 left-1/2 z-20 flex size-14 -translate-x-1/2 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-all hover:bg-primary/90 hover:shadow-xl active:scale-95 sm:left-auto sm:right-[max(1.5rem,calc(50%-16rem))] sm:translate-x-0"
->
-    <Plus class="size-6" />
-</button>
 
 <ExpenseForm
     bind:open={formOpen}

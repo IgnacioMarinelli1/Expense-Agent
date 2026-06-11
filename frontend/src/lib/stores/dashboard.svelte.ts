@@ -16,6 +16,7 @@ export interface DashboardQuery {
 export interface DashboardSummary {
     period: string
     income: number
+    cobrado: number
     expenses: number
     available_balance: number
     monthly_savings: number
@@ -101,6 +102,14 @@ type LegacyExpense = {
     due_date?: string | null
     paid: boolean
     notes?: string | null
+}
+
+type IncomeEntry = {
+    id: string
+    description: string
+    amount: number
+    currency: string | null
+    date: string | null
 }
 
 const CATEGORY_LABELS = [
@@ -204,6 +213,7 @@ function isoDateFromLegacy(value: string | null | undefined, period: string) {
 type MonthlyFinance = {
     salary: number | null
     budget: number | null
+    cobrado: number
     currency: string
 }
 
@@ -217,13 +227,14 @@ function budgetStatus(spent: number, budgeted: number | null | undefined): Budge
 function buildDashboard(
     period: string,
     expensesRaw: LegacyExpense[],
+    incomeRaw: IncomeEntry[],
     previousTotal: number,
     finance: MonthlyFinance | null,
     filters: DashboardQuery,
 ): DashboardData {
     // Todo se normaliza a ARS (base de calculo) usando la cotizacion en vivo.
     // El formateo a la moneda de visualizacion (ARS/USD) ocurre en los componentes.
-    const allMovements = expensesRaw.map((expense) => {
+    const expenseMovements: DashboardMovement[] = expensesRaw.map((expense) => {
         const category = normalizeCategory(expense.category, expense.type)
         return {
             id: expense.id,
@@ -241,12 +252,37 @@ function buildDashboard(
         }
     })
 
-    let movements = allMovements
-    if (filters.category) movements = movements.filter((item) => item.categoria === filters.category)
-    if (filters.type === 'income') movements = []
+    const incomeMovements: DashboardMovement[] = incomeRaw.map((entry) => ({
+        id: entry.id,
+        fecha: entry.date ? isoDateFromLegacy(entry.date, period) : `${period}-01`,
+        tipo: 'ingreso' as const,
+        categoria: 'Ingresos',
+        subcategoria: null,
+        descripcion: entry.description,
+        medioPago: null,
+        cuenta: null,
+        monto: roundMoney(toArs(Number(entry.amount ?? 0), entry.currency ?? 'ARS')),
+        esFijo: false,
+        createdAt: null,
+        updatedAt: null,
+    }))
 
-    const expenses = roundMoney(allMovements.reduce((sum, item) => sum + item.monto, 0))
-    const visibleExpenses = roundMoney(movements.reduce((sum, item) => sum + item.monto, 0))
+    let movements: DashboardMovement[]
+    if (filters.type === 'income') {
+        movements = incomeMovements
+    } else if (filters.type === 'expense') {
+        movements = expenseMovements
+    } else {
+        movements = [...expenseMovements, ...incomeMovements]
+    }
+    if (filters.category) movements = movements.filter((item) => item.categoria === filters.category)
+
+    const expenses = roundMoney(expenseMovements.reduce((sum, item) => sum + item.monto, 0))
+    const visibleExpenses = roundMoney(
+        (filters.type === 'income' ? incomeMovements : expenseMovements)
+            .filter((m) => !filters.category || m.categoria === filters.category)
+            .reduce((sum, item) => sum + item.monto, 0)
+    )
     const dayCount = analysisDayCount(period)
     const dailyAverage = roundMoney(expenses / dayCount)
     const projected = roundMoney(dailyAverage * daysInMonth(period))
@@ -275,7 +311,7 @@ function buildDashboard(
         return { date, amount, cumulative }
     })
 
-    // Sueldo/presupuesto pueden estar en otra moneda (ej: sueldo en USD): a ARS base.
+    // Sueldo/presupuesto/cobrado pueden estar en otra moneda (ej: sueldo en USD): a ARS base.
     const financeCurrency = finance?.currency ?? 'ARS'
     const salary = finance?.salary !== null && finance?.salary !== undefined
         ? roundMoney(toArs(finance.salary, financeCurrency))
@@ -283,6 +319,7 @@ function buildDashboard(
     const budget = finance?.budget !== null && finance?.budget !== undefined
         ? roundMoney(toArs(finance.budget, financeCurrency))
         : null
+    const cobrado = roundMoney(toArs(finance?.cobrado ?? 0, financeCurrency))
 
     const generalBudget: DashboardBudgetItem = {
         category: 'Presupuesto general',
@@ -334,6 +371,7 @@ function buildDashboard(
         summary: {
             period,
             income: salary ?? 0,
+            cobrado,
             expenses: visibleExpenses || expenses,
             available_balance: roundMoney((salary ?? 0) - expenses),
             monthly_savings: salary !== null ? roundMoney(salary - expenses) : 0,
@@ -366,6 +404,7 @@ const emptyData: DashboardData = {
     summary: {
         period: currentMonth(),
         income: 0,
+        cobrado: 0,
         expenses: 0,
         available_balance: 0,
         monthly_savings: 0,
@@ -400,16 +439,17 @@ export async function loadDashboard(nextFilters?: Partial<DashboardQuery>) {
     try {
         // Necesitamos las cotizaciones antes de normalizar montos a ARS.
         await ensureRates()
-        const [expensesRaw, previousSummaryRaw, financeRaw] = await Promise.all([
+        const [expensesRaw, incomeRaw, previousSummaryRaw, financeRaw] = await Promise.all([
             api.getExpenses(_filters.month),
+            api.getIncome(_filters.month).catch(() => [] as IncomeEntry[]),
             api.getSummary(previousMonth(_filters.month)),
-            // Backend viejo puede no tener /finance todavia; el dashboard no debe romperse.
             api.getFinance(_filters.month).catch(() => null),
         ])
 
         _data = buildDashboard(
             _filters.month,
             expensesRaw as LegacyExpense[],
+            incomeRaw as IncomeEntry[],
             summaryToArs(previousSummaryRaw),
             financeRaw,
             _filters,

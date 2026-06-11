@@ -1,3 +1,4 @@
+import asyncio
 from fastapi import APIRouter, Query, HTTPException
 from typing import Optional
 from datetime import datetime
@@ -84,7 +85,8 @@ def _to_expense(doc: dict) -> dict:
 @router.get("/expenses")
 async def get_expenses(month: Optional[str] = Query(None)):
     db = get_db()
-    query: dict = {"user_id": current_user_id()}
+    # Exclude income entries — those go to the "cobrado" card, not the expense list
+    query: dict = {"user_id": current_user_id(), "type": {"$ne": "income"}}
     if month:
         query["period"] = month
     cursor = db["payments"].find(query).sort("payment_date", -1)
@@ -135,19 +137,50 @@ async def mark_paid(expense_id: str):
 @router.get("/finance")
 async def get_finance(month: Optional[str] = Query(None)):
     db = get_db()
+    user_id = current_user_id()
     period = month or datetime.utcnow().strftime("%Y-%m")
-    doc = await db["monthly_finances"].find_one(
-        {"user_id": current_user_id(), "period": period}
+
+    doc, income_rows = await asyncio.gather(
+        db["monthly_finances"].find_one({"user_id": user_id, "period": period}),
+        db["payments"].aggregate([
+            {"$match": {"user_id": user_id, "period": period, "type": "income"}},
+            {"$group": {"_id": None, "total": {"$sum": "$amount"}}},
+        ]).to_list(length=1),
     )
+
+    cobrado = income_rows[0]["total"] if income_rows else 0.0
+
     if not doc:
-        return {"period": period, "salary": None, "budget": None, "currency": "ARS", "notes": None}
+        return {"period": period, "salary": None, "budget": None, "cobrado": cobrado, "currency": "ARS", "notes": None}
     return {
         "period": period,
         "salary": doc.get("salary"),
         "budget": doc.get("budget"),
+        "cobrado": cobrado,
         "currency": doc.get("currency", "ARS"),
         "notes": doc.get("notes"),
     }
+
+
+@router.get("/income")
+async def get_income(month: Optional[str] = Query(None)):
+    db = get_db()
+    query: dict = {"user_id": current_user_id(), "type": "income"}
+    if month:
+        query["period"] = month
+    cursor = db["payments"].find(query).sort("payment_date", -1)
+    docs = await cursor.to_list(length=100)
+    return [
+        {
+            "id": str(doc["_id"]),
+            "description": doc.get("notes") or "Ingreso",
+            "amount": doc.get("amount", 0),
+            "currency": doc.get("currency", "ARS"),
+            "date": _fmt(doc.get("payment_date")),
+            "period": doc.get("period"),
+        }
+        for doc in docs
+    ]
 
 
 @router.get("/fx")
