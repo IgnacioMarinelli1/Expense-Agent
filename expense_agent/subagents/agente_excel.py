@@ -1,21 +1,23 @@
 import os
 from datetime import datetime
 from google.adk.agents import LlmAgent
-from db.security import current_user_id
 
-CURRENT_USER_ID = current_user_id()
 CURRENT_DATE = datetime.now().date().isoformat()
 
-# BACKEND_PUBLIC_URL: URL pública del backend principal (sin trailing slash).
-# En local dev, setear a http://localhost:8000.
-# En Cloud Run (agent service), setear BACKEND_PUBLIC_URL a la URL del backend principal.
 BACKEND_PUBLIC_URL = os.getenv("BACKEND_PUBLIC_URL", "http://localhost:8000").rstrip("/")
+
+# Pending download specs — drained by the SSE stream (same IPC pattern as pending chart specs).
+_pending_excel_downloads: list[dict] = []
+
+
+def pop_pending_excel_downloads() -> list[dict]:
+    specs, _pending_excel_downloads[:] = _pending_excel_downloads[:], []
+    return specs
 
 
 async def get_excel_download_url(month: str = None) -> dict:
     """Genera la URL de descarga para un Excel con los gastos del usuario.
-    month: período en formato YYYY-MM. Si es None, exporta todos los gastos.
-    Retorna la URL completa lista para usar en un link de descarga."""
+    month: período en formato YYYY-MM. Si es None, exporta todos los gastos."""
     if month:
         url = f"{BACKEND_PUBLIC_URL}/export/expenses?month={month}"
         filename = f"gastos_{month}.xlsx"
@@ -24,13 +26,14 @@ async def get_excel_download_url(month: str = None) -> dict:
         url = f"{BACKEND_PUBLIC_URL}/export/expenses"
         filename = "gastos_todos.xlsx"
         label = "Descargar Excel con todos los gastos"
+    _pending_excel_downloads.append({"url": url, "filename": filename, "label": label})
     return {"status": "success", "download_url": url, "filename": filename, "label": label}
 
 
 _INSTRUCTION = f"""
 # Identity
 Sos el agente de exportación de reportes de Expense Agent.
-Tu misión: entender qué período quiere exportar el usuario y generar el link de descarga del Excel.
+Tu misión: entender qué período quiere exportar el usuario y llamar a get_excel_download_url.
 CRÍTICO: Respondé siempre en español rioplatense, de forma breve y directa.
 
 # Contexto
@@ -40,20 +43,21 @@ Fecha actual: {CURRENT_DATE}.
 
 1. Determiná el período que pide el usuario:
    - Si menciona un mes o período específico, usalo en formato YYYY-MM.
-   - Si dice "todos", "completo", "todo", llamá a get_excel_download_url sin month (exporta todo).
+   - Si dice "todos", "completo", "todo", llamá a get_excel_download_url sin month.
    - Si no especifica, usá el mes actual ({CURRENT_DATE[:7]}).
+   - Si pide varios meses, hacé una llamada por cada período.
 
 2. Llamá a get_excel_download_url con el month correspondiente.
-   - Si pide ambos meses o varios períodos, hacé UNA llamada por cada período.
 
-3. Respondé con el/los links de descarga en formato markdown, usando EXACTAMENTE la download_url que devolvió la tool — nunca inventes ni modifiques la URL.
+3. Respondé con una confirmación breve (1 línea). El link de descarga aparece automáticamente
+   en la interfaz — NO lo incluyas en tu respuesta.
+
+Ejemplo de respuesta correcta: "Listo, el Excel de gastos de junio 2026 está disponible."
 
 # Reglas
-- CRÍTICO: el link de descarga debe ser la download_url exacta que retornó get_excel_download_url. No uses URLs de ejemplo ni placeholders.
-- Si el usuario pide varios meses, generá un link por mes en la misma respuesta.
-- NO consultés MongoDB. Solo llamá a get_excel_download_url y devolvé el link.
-- No respondas con JSON, IDs ni nombres internos.
-- Máximo 2 oraciones + los links.
+- NO incluyas URLs, links ni markdown de descarga en tu respuesta. El sistema los agrega automáticamente.
+- NO consultés MongoDB.
+- Máximo 1-2 oraciones de confirmación.
 - NO usés emojis.
 """
 

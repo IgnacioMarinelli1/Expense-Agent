@@ -31,6 +31,12 @@ export type ChartSpec = {
     generatedAt: string
 }
 
+export type DownloadSpec = {
+    url: string
+    filename: string
+    label: string
+}
+
 export type Message = {
     id: number
     type: 'usuario' | 'agente'
@@ -41,6 +47,7 @@ export type Message = {
     fileName?: string
     traces?: TraceStep[]
     charts?: ChartSpec[]
+    downloads?: DownloadSpec[]
 }
 
 // Store de gastos
@@ -57,9 +64,9 @@ const mensajeInicial: Message[] = [
 ]
 
 function cargarChatGuardado(): Message[] {
-    if (typeof sessionStorage === 'undefined') return mensajeInicial
+    if (typeof localStorage === 'undefined') return mensajeInicial
     try {
-        const raw = sessionStorage.getItem(CHAT_STORAGE_KEY)
+        const raw = localStorage.getItem(CHAT_STORAGE_KEY)
         if (!raw) return mensajeInicial
         const parsed = JSON.parse(raw) as Message[]
         if (!Array.isArray(parsed) || parsed.length === 0) return mensajeInicial
@@ -69,10 +76,10 @@ function cargarChatGuardado(): Message[] {
     }
 }
 
-// Store del chat: persiste en sessionStorage para sobrevivir recargas de página.
+// Store del chat: persiste en localStorage para sobrevivir recargas de página.
 export const messages = writable<Message[]>(cargarChatGuardado())
 
-if (typeof sessionStorage !== 'undefined') {
+if (typeof localStorage !== 'undefined') {
     messages.subscribe((value) => {
         try {
             const persistibles = value
@@ -83,7 +90,7 @@ if (typeof sessionStorage !== 'undefined') {
                         ? { ...rest, fileType: 'file' as const, fileName: rest.fileName ?? 'archivo adjunto' }
                         : rest,
                 )
-            sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(persistibles))
+            localStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(persistibles))
         } catch {
             // Si el storage está lleno o bloqueado, el chat sigue funcionando en memoria.
         }

@@ -49,12 +49,19 @@ function ddmmToIso(value?: string | null) {
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00:00`
 }
 
+export type DownloadSpec = {
+    url: string
+    filename: string
+    label: string
+}
+
 type StreamHandlers = {
     onToken: (text: string) => void
     onError?: (message: string) => void
     onDone?: () => void
     onThinking?: (agent: string, status: string, label: string) => void
     onChart?: (chart: ChartSpec) => void
+    onDownload?: (dl: DownloadSpec) => void
 }
 
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
@@ -103,6 +110,7 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
         if (event === 'error') handlers.onError?.(data.message ?? 'No pude procesar tu mensaje.')
         if (event === 'thinking') handlers.onThinking?.(data.agent, data.status, data.label)
         if (event === 'chart') handlers.onChart?.(data)
+        if (event === 'download') handlers.onDownload?.(data)
         if (event === 'done') {
             handlers.onDone?.()
             if (esEscritura(options.method ?? 'POST', path)) {

@@ -8,7 +8,7 @@ from typing import Any
 from urllib.parse import urlparse
 
 import httpx
-from fastapi import APIRouter, UploadFile, File
+from fastapi import APIRouter, UploadFile, File, Form
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from google.adk.agents.run_config import RunConfig, StreamingMode
@@ -23,6 +23,7 @@ from expense_agent.charting import (
     extract_chart_requests,
     pop_pending_chart_specs,
 )
+from expense_agent.subagents.agente_excel import pop_pending_excel_downloads
 from helpers.spreadsheet import SUPPORTED_SPREADSHEET_MIME, spreadsheet_to_text
 from db.security import current_session_id, current_user_id
 
@@ -109,6 +110,10 @@ _SUBAGENT_LABELS: dict[str, dict[str, str]] = {
     "agente_visualizacion": {
         "running": "Preparando visualización interactiva...",
         "done": "Gráfico listo",
+    },
+    "agente_excel": {
+        "running": "Generando reporte Excel...",
+        "done": "Reporte listo",
     },
 }
 _SUBAGENT_NAMES = set(_SUBAGENT_LABELS.keys())
@@ -418,6 +423,11 @@ def _drain_pending_chart_sse():
         yield _sse("chart", chart_spec)
 
 
+def _drain_pending_download_sse():
+    for dl in pop_pending_excel_downloads():
+        yield _sse("download", dl)
+
+
 def _agent_error_message(exc: Exception, modality_label: str) -> str | None:
     if isinstance(exc, ServerError):
         is_transient = exc.status in {"UNAVAILABLE", "INTERNAL"} or "503" in str(exc) or "500" in str(exc)
@@ -572,6 +582,9 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
                     emitted_chart_ids.add(chart_id)
                 yield chart_event
 
+            for dl_event in _drain_pending_download_sse():
+                yield dl_event
+
             if event.error_message:
                 yield _sse("error", {"message": _safe_agent_error_message(event.error_message, modality_label)})
                 return
@@ -587,7 +600,10 @@ async def _stream_agent(content: Content, modality_label: str = "mensaje"):
         for chart_event in chart_events:
             yield chart_event
         if text:
+            total_streamed += text
             yield _sse("token", {"text": text})
+        if not total_streamed:
+            yield _sse("token", {"text": "Listo."})
         yield _sse("done", {})
     except Exception as exc:
         message = _agent_error_message(exc, modality_label) or "No pude procesar tu mensaje."
@@ -627,7 +643,7 @@ async def _audio_content(audio: UploadFile):
     )
 
 
-async def _image_content(image: UploadFile):
+async def _image_content(image: UploadFile, caption: str | None = None):
     data = await image.read()
     mime_type = (image.content_type or "image/jpeg").split(";")[0]
 
@@ -637,8 +653,10 @@ async def _image_content(image: UploadFile):
         except Exception as exc:
             logger.warning("Failed to parse spreadsheet %s: %s", image.filename, exc)
             return {"response": "No pude leer el archivo. Verificá que sea un CSV o Excel (.xlsx) válido."}
+        prefix = f"{caption.strip()}\n\n" if caption and caption.strip() else ""
         prompt = (
-            "El usuario compartió el siguiente archivo con datos financieros. "
+            prefix
+            + "El usuario compartió el siguiente archivo con datos financieros. "
             "Analizá el contenido, identificá gastos, pagos o servicios, "
             "y guardá los registros relevantes usando las herramientas disponibles.\n\n"
             + table_text
@@ -653,14 +671,15 @@ async def _image_content(image: UploadFile):
                 "Soportamos imágenes, PDF, CSV y Excel (.xlsx)."
             )
         }
+    instruction = (
+        caption.strip()
+        if caption and caption.strip()
+        else "Extraé los datos de este recibo o factura y guardá el gasto usando las herramientas disponibles."
+    )
     return Content(
         role="user",
         parts=[
-            Part.from_text(
-                text=(
-                    "Extraé los datos de este recibo o factura y guardá el gasto usando las herramientas disponibles."
-                )
-            ),
+            Part.from_text(text=instruction),
             Part.from_bytes(data=data, mime_type=mime_type),
         ],
     )
@@ -698,16 +717,16 @@ async def agent_audio_stream(audio: UploadFile = File(...)):
 
 
 @router.post("/image")
-async def agent_image(image: UploadFile = File(...)):
-    content_or_error = await _image_content(image)
+async def agent_image(image: UploadFile = File(...), caption: str | None = Form(None)):
+    content_or_error = await _image_content(image, caption)
     if isinstance(content_or_error, dict):
         return content_or_error
     return {"response": await _run_agent(content_or_error, modality_label="imagen")}
 
 
 @router.post("/image/stream")
-async def agent_image_stream(image: UploadFile = File(...)):
-    content_or_error = await _image_content(image)
+async def agent_image_stream(image: UploadFile = File(...), caption: str | None = Form(None)):
+    content_or_error = await _image_content(image, caption)
     if isinstance(content_or_error, dict):
         return StreamingResponse(
             iter([_sse("error", {"message": content_or_error["response"]})]),

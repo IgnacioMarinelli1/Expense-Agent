@@ -6,9 +6,9 @@
 
 <script lang="ts">
     import { onMount } from "svelte";
-    import { messages, type TraceStep, type ChartSpec } from "$lib/stores/expenses";
+    import { messages, type TraceStep, type ChartSpec, type DownloadSpec } from "$lib/stores/expenses";
     import { api } from "$lib/api/client";
-    import { Bot, Mic, Square, ArrowUp, Camera } from "@lucide/svelte";
+    import { Bot, Mic, Square, ArrowUp, Paperclip, Camera, FolderOpen, FileSpreadsheet } from "@lucide/svelte";
     import { marked } from "marked";
     import ThinkingSteps from "$lib/components/ThinkingSteps.svelte";
     import ChatChart from "$lib/components/ChatChart.svelte";
@@ -116,6 +116,20 @@
     let mediaRecorder: MediaRecorder | null = null;
     let chunks: Blob[] = [];
     let fileInput: HTMLInputElement | undefined = $state();
+    let cameraInput: HTMLInputElement | undefined = $state();
+    let showAttachMenu = $state(false);
+    let pendingFile: File | null = $state(null);
+    let pendingFileUrl = $state('');
+    let pendingFileType = $state('');
+    let pendingFileName = $state('');
+
+    function clearPendingFile() {
+        if (pendingFileUrl) URL.revokeObjectURL(pendingFileUrl);
+        pendingFile = null;
+        pendingFileUrl = '';
+        pendingFileType = '';
+        pendingFileName = '';
+    }
 
     function encodeWav(audioBuffer: AudioBuffer) {
         const channels = audioBuffer.numberOfChannels;
@@ -228,6 +242,14 @@
         );
     }
 
+    function addDownloadToMessage(id: number, dl: DownloadSpec) {
+        messages.update((m) =>
+            m.map((msg) =>
+                msg.id !== id ? msg : { ...msg, downloads: [...(msg.downloads ?? []), dl] },
+            ),
+        );
+    }
+
     async function streamIntoMessage(
         id: number,
         startStream: (handlers: {
@@ -235,6 +257,7 @@
             onError: (message: string) => void;
             onThinking: (agent: string, status: string, label: string) => void;
             onChart: (chart: ChartSpec) => void;
+            onDownload: (dl: DownloadSpec) => void;
         }) => Promise<void>,
         fallback: string,
     ) {
@@ -258,6 +281,9 @@
                 onChart: (chart) => {
                     addChartToMessage(id, chart);
                 },
+                onDownload: (dl) => {
+                    addDownloadToMessage(id, dl);
+                },
             });
             messages.update((m) =>
                 m.map((msg) =>
@@ -279,12 +305,40 @@
     }
 
     async function sendMessage() {
-        if (!inputText.trim() || isStreaming) return;
+        if ((!inputText.trim() && !pendingFile) || isStreaming) return;
 
         const text = inputText;
         inputText = "";
 
-        // Agregar mensaje del usuario
+        if (pendingFile) {
+            const file = pendingFile;
+            const fileUrl = pendingFileUrl;
+            const fileType = pendingFileType;
+            const fileName = pendingFileName;
+            // Limpiar estado antes de enviar para que el UI responda rápido
+            pendingFile = null;
+            pendingFileUrl = '';
+            pendingFileType = '';
+            pendingFileName = '';
+
+            messages.update((m) => [
+                ...m,
+                { id: Date.now(), type: "usuario", text, fileUrl, fileType, fileName },
+            ]);
+            const loadingId = addAgentStreamMessage();
+            await streamIntoMessage(
+                loadingId,
+                (handlers) => api.streamImage(file, {
+                    onToken: handlers.onToken,
+                    onError: handlers.onError,
+                    onThinking: handlers.onThinking,
+                    onChart: handlers.onChart,
+                }, text || undefined),
+                "No pude procesar el archivo.",
+            );
+            return;
+        }
+
         messages.update((m) => [
             ...m,
             { id: Date.now(), type: "usuario", text },
@@ -375,32 +429,56 @@
         "application/vnd.ms-excel",
     ]);
 
+    async function resizeImage(file: File, maxDim = 1600, quality = 0.82): Promise<File> {
+        return new Promise((resolve) => {
+            const img = new window.Image();
+            const blobUrl = URL.createObjectURL(file);
+            img.onload = () => {
+                URL.revokeObjectURL(blobUrl);
+                let { width, height } = img;
+                if (width <= maxDim && height <= maxDim) { resolve(file); return; }
+                const scale = maxDim / Math.max(width, height);
+                width = Math.round(width * scale);
+                height = Math.round(height * scale);
+                const canvas = document.createElement('canvas');
+                canvas.width = width;
+                canvas.height = height;
+                canvas.getContext('2d')!.drawImage(img, 0, 0, width, height);
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) { resolve(file); return; }
+                        resolve(new File([blob], file.name.replace(/\.[^.]+$/, '.jpg'), { type: 'image/jpeg' }));
+                    },
+                    'image/jpeg',
+                    quality,
+                );
+            };
+            img.onerror = () => { URL.revokeObjectURL(blobUrl); resolve(file); };
+            img.src = blobUrl;
+        });
+    }
+
     async function handleImageUpload(e: Event) {
         const input = e.target as HTMLInputElement;
         if (!input.files?.length || isStreaming) return;
 
-        const file = input.files[0];
-        input.value = ""; // reset
+        let file = input.files[0];
+        input.value = "";
 
         const isSpreadsheet = SPREADSHEET_TYPES.has(file.type);
         const fileType = file.type === "application/pdf" ? "pdf" : isSpreadsheet ? "file" : "image";
-        const fileUrl = isSpreadsheet ? "" : URL.createObjectURL(file);
 
-        messages.update((m) => [
-            ...m,
-            { id: Date.now(), type: "usuario", text: "", fileUrl, fileType, fileName: file.name },
-        ]);
-        const loadingId = addAgentStreamMessage();
-        await streamIntoMessage(
-            loadingId,
-            (handlers) => api.streamImage(file, {
-                onToken: handlers.onToken,
-                onError: handlers.onError,
-                onThinking: handlers.onThinking,
-                onChart: handlers.onChart,
-            }),
-            "No pude procesar el archivo.",
-        );
+        if (fileType === "image") {
+            file = await resizeImage(file);
+        }
+
+        // Si había un archivo pendiente anterior, liberar la URL
+        if (pendingFileUrl) URL.revokeObjectURL(pendingFileUrl);
+
+        pendingFile = file;
+        pendingFileType = fileType;
+        pendingFileName = file.name;
+        pendingFileUrl = fileType === "file" ? "" : URL.createObjectURL(file);
     }
 </script>
 
@@ -483,6 +561,23 @@
                                 <ChatChart {chart} />
                             {/each}
                         {/if}
+
+                        {#if message.downloads?.length}
+                            <div class="flex flex-col gap-2 pt-1">
+                                {#each message.downloads as dl}
+                                    <a
+                                        href={dl.url}
+                                        download={dl.filename}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        class="inline-flex items-center gap-2.5 rounded-xl border border-border bg-muted/60 px-4 py-2.5 text-sm font-medium text-foreground transition-colors hover:bg-muted hover:border-foreground/30 w-fit"
+                                    >
+                                        <FileSpreadsheet class="size-4 shrink-0 text-emerald-500" />
+                                        {dl.label}
+                                    </a>
+                                {/each}
+                            </div>
+                        {/if}
                     </div>
                 </article>
             {/if}
@@ -493,27 +588,77 @@
         <input
             type="file"
             accept="image/*,application/pdf,text/csv,.csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,.xlsx,application/vnd.ms-excel,.xls"
-            hidden
+            class="sr-only"
             bind:this={fileInput}
             onchange={handleImageUpload}
         />
-        <button
-            onclick={() => fileInput?.click()}
-            disabled={isStreaming}
-            aria-label="Subir imagen"
-            class="flex size-11 shrink-0 items-center justify-center rounded-full transition-all active:scale-95 bg-secondary text-foreground hover:bg-muted disabled:opacity-40 disabled:active:scale-100"
-        >
-            <Camera class="size-5" />
-        </button>
+        <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            class="sr-only"
+            bind:this={cameraInput}
+            onchange={handleImageUpload}
+        />
 
-        <textarea
-            bind:value={inputText}
-            onkeydown={handleKeydown}
-            placeholder="Escribí un pago o mandá un audio..."
-            rows={1}
-            disabled={isStreaming}
-            class="flex-1 resize-none rounded-xl border border-border bg-secondary px-4 py-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/40"
-        ></textarea>
+        <div class="relative shrink-0">
+            {#if showAttachMenu}
+                <div class="absolute bottom-14 left-0 z-20 flex flex-col overflow-hidden rounded-2xl border border-border bg-card shadow-lg">
+                    <button
+                        onclick={() => { showAttachMenu = false; cameraInput?.click(); }}
+                        class="flex items-center gap-3 px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors"
+                    >
+                        <Camera class="size-4 text-muted-foreground" />
+                        Tomar foto
+                    </button>
+                    <div class="h-px bg-border mx-3"></div>
+                    <button
+                        onclick={() => { showAttachMenu = false; fileInput?.click(); }}
+                        class="flex items-center gap-3 px-4 py-3 text-sm text-foreground hover:bg-muted transition-colors"
+                    >
+                        <FolderOpen class="size-4 text-muted-foreground" />
+                        Subir archivo
+                    </button>
+                </div>
+                <!-- svelte-ignore a11y_click_events_have_key_events a11y_no_static_element_interactions -->
+                <div class="fixed inset-0 z-10" onclick={() => showAttachMenu = false}></div>
+            {/if}
+            <button
+                onclick={() => { if (!isStreaming) showAttachMenu = !showAttachMenu; }}
+                disabled={isStreaming}
+                aria-label="Adjuntar archivo"
+                class="flex size-11 items-center justify-center rounded-full transition-all active:scale-95 bg-secondary text-foreground hover:bg-muted disabled:opacity-40 disabled:active:scale-100"
+                class:bg-muted={showAttachMenu}
+            >
+                <Paperclip class="size-5" />
+            </button>
+        </div>
+
+        <div class="flex flex-1 min-w-0 flex-col gap-1.5">
+            {#if pendingFile}
+                <div class="flex min-w-0 items-center gap-2 rounded-xl border border-border bg-muted/60 px-3 py-2">
+                    {#if pendingFileType === "image" && pendingFileUrl}
+                        <img src={pendingFileUrl} alt="preview" class="size-8 rounded-md object-cover shrink-0" />
+                    {:else}
+                        <Paperclip class="size-4 text-muted-foreground shrink-0" />
+                    {/if}
+                    <span class="min-w-0 flex-1 truncate text-xs text-muted-foreground">{pendingFileName}</span>
+                    <button
+                        onclick={clearPendingFile}
+                        class="shrink-0 text-muted-foreground hover:text-foreground transition-colors text-sm leading-none"
+                        aria-label="Quitar archivo"
+                    >✕</button>
+                </div>
+            {/if}
+            <textarea
+                bind:value={inputText}
+                onkeydown={handleKeydown}
+                placeholder={pendingFile ? "Agregá un mensaje (opcional)..." : "Escribí un pago o mandá un audio..."}
+                rows={1}
+                disabled={isStreaming}
+                class="w-full resize-none rounded-xl border border-border bg-secondary px-4 py-3 text-sm text-foreground outline-none transition-colors focus:border-ring focus:ring-2 focus:ring-ring/40"
+            ></textarea>
+        </div>
 
         <button
             onclick={toggleRecording}
@@ -532,7 +677,7 @@
 
         <button
             onclick={sendMessage}
-            disabled={!inputText.trim() || isStreaming}
+            disabled={(!inputText.trim() && !pendingFile) || isStreaming}
             aria-label="Enviar mensaje"
             class="flex size-11 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground transition-all hover:bg-primary/90 active:scale-95 disabled:opacity-40 disabled:active:scale-100"
         >
@@ -564,7 +709,13 @@
         font-weight: 600;
     }
     :global(.markdown-body a) {
+        color: var(--primary);
         text-decoration: underline;
+        text-underline-offset: 2px;
+        font-weight: 500;
+    }
+    :global(.markdown-body a:hover) {
+        opacity: 0.8;
     }
 
     /* Tablas */
