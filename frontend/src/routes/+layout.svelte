@@ -32,6 +32,11 @@
 		localStorage.setItem("theme", dark ? "dark" : "light");
 	}
 
+	const currentMonthLabel = (() => {
+		const label = new Date().toLocaleDateString("es-AR", { month: "long", year: "numeric" });
+		return label.charAt(0).toUpperCase() + label.slice(1);
+	})();
+
 	onMount(() => {
 		const stored = localStorage.getItem("theme");
 		dark = stored
@@ -66,7 +71,7 @@
 			</div>
 
 			<div class="flex items-center gap-3">
-				<span class="text-xs text-muted-foreground">Mayo 2026</span>
+				<span class="text-xs text-muted-foreground">{currentMonthLabel}</span>
 				<button
 					onclick={toggleTheme}
 					aria-label="Cambiar tema"
