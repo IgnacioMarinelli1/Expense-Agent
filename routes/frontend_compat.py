@@ -86,13 +86,15 @@ async def get_expenses(month: Optional[str] = Query(None)):
 @router.post("/expenses", status_code=201)
 async def create_expense(body: dict):
     db = get_db()
+    payment_date = (_parse_date(body["date"]) if body.get("date") else None) or datetime.utcnow()
     doc = {
         "user_id": current_user_id(),
         "amount": float(body.get("amount", 0)),
         "currency": "ARS",
         "notes": body.get("type", ""),
         "status": "paid" if body.get("paid") else "pending",
-        "payment_date": _parse_date(body["date"]) if body.get("date") else datetime.utcnow(),
+        "payment_date": payment_date,
+        "period": payment_date.strftime("%Y-%m"),
         "input_method": "manual",
         "created_at": datetime.utcnow(),
     }

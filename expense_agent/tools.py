@@ -71,18 +71,20 @@ async def save_expense(
             "message": "Este pago ya existe. No se volvió a registrar.",
         }
 
+    fecha_pago = datetime.fromisoformat(payment_date) if payment_date else now
     doc = {
         "user_id": user_id,
         "amount": amount,
         "currency": currency,
-        "payment_date": datetime.fromisoformat(payment_date) if payment_date else now,
+        "payment_date": fecha_pago,
         "status": status,
         "input_method": input_method,
         "created_at": now,
     }
     if due_date:    doc["due_date"] = datetime.fromisoformat(due_date)
     if notes:       doc["notes"] = notes
-    if period:      doc["period"] = period
+    # period siempre presente: el dashboard filtra por este campo
+    doc["period"] = period if _is_valid_period(period) else fecha_pago.strftime("%Y-%m")
     if service_id:  doc["service_id"] = service_id
     if property_id: doc["property_id"] = property_id
 
