@@ -333,6 +333,7 @@
                     onError: handlers.onError,
                     onThinking: handlers.onThinking,
                     onChart: handlers.onChart,
+                    onDownload: handlers.onDownload,
                 }, text || undefined),
                 "No pude procesar el archivo.",
             );
@@ -352,6 +353,7 @@
                 onError: handlers.onError,
                 onThinking: handlers.onThinking,
                 onChart: handlers.onChart,
+                onDownload: handlers.onDownload,
             }),
             "Hubo un error al conectar con el agente. ¿El backend está corriendo?",
         );
@@ -395,6 +397,7 @@
                             onError: handlers.onError,
                             onThinking: handlers.onThinking,
                             onChart: handlers.onChart,
+                            onDownload: handlers.onDownload,
                         }),
                         "No pude procesar el audio.",
                     );
