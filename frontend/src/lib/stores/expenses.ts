@@ -46,14 +46,49 @@ export type Message = {
 // Store de gastos
 export const expenses = writable<Expense[]>([])
 
-// Store del chat
-export const messages = writable<Message[]>([
+const CHAT_STORAGE_KEY = 'al-dia-chat'
+
+const mensajeInicial: Message[] = [
     {
         id: 1,
         type: 'agente',
         text: '¡Hola! Soy tu asistente de pagos. Podés decirme cosas como "Pagué la luz $18.500" o "¿Cuánto gasté este mes?"'
     }
-])
+]
+
+function cargarChatGuardado(): Message[] {
+    if (typeof sessionStorage === 'undefined') return mensajeInicial
+    try {
+        const raw = sessionStorage.getItem(CHAT_STORAGE_KEY)
+        if (!raw) return mensajeInicial
+        const parsed = JSON.parse(raw) as Message[]
+        if (!Array.isArray(parsed) || parsed.length === 0) return mensajeInicial
+        return parsed.map((m) => ({ ...m, loading: false }))
+    } catch {
+        return mensajeInicial
+    }
+}
+
+// Store del chat: persiste en sessionStorage para sobrevivir recargas de página.
+export const messages = writable<Message[]>(cargarChatGuardado())
+
+if (typeof sessionStorage !== 'undefined') {
+    messages.subscribe((value) => {
+        try {
+            const persistibles = value
+                .filter((m) => !m.loading)
+                .map(({ fileUrl, ...rest }) =>
+                    // Los blob: URLs mueren al recargar; degradamos a chip de archivo.
+                    fileUrl && rest.fileType !== 'file'
+                        ? { ...rest, fileType: 'file' as const, fileName: rest.fileName ?? 'archivo adjunto' }
+                        : rest,
+                )
+            sessionStorage.setItem(CHAT_STORAGE_KEY, JSON.stringify(persistibles))
+        } catch {
+            // Si el storage está lleno o bloqueado, el chat sigue funcionando en memoria.
+        }
+    })
+}
 
 // Store de estado de carga
 export const loading = writable(false)

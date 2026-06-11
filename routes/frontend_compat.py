@@ -41,11 +41,19 @@ def _category(expense_type: str) -> str:
         return "agua"
     if any(k in t for k in ["abl", "impuest", "municipal", "tasa"]):
         return "impuesto"
-    if any(k in t for k in ["expensa", "admin"]):
+    if any(k in t for k in ["expensa", "alquiler", "consorcio", "admin"]):
         return "expensas"
     if any(k in t for k in ["internet", "wifi", "tel", "cable", "movistar", "claro", "personal"]):
         return "telefonia"
-    return "expensas"
+    if any(k in t for k in ["netflix", "spotify", "chatgpt", "claude", "suscrip", "subscription", "youtube", "disney", "hbo", "prime", "icloud"]):
+        return "subscription"
+    if any(k in t for k in ["super", "mercado", "comida", "restaurant", "delivery", "cena", "almuerzo", "desayuno", "verdul", "carnicer", "panader", "cafe", "pancho", "pizza", "hamburg", "jamon", "jamón"]):
+        return "comida"
+    if any(k in t for k in ["uber", "taxi", "nafta", "sube", "colectivo", "tren", "peaje", "transporte", "cabify"]):
+        return "transporte"
+    if any(k in t for k in ["farmacia", "medic", "salud", "prepaga", "hospital", "dentista"]):
+        return "salud"
+    return "otros"
 
 
 def _to_expense(doc: dict) -> dict:
@@ -121,6 +129,24 @@ async def mark_paid(expense_id: str):
     if result.matched_count == 0:
         raise HTTPException(status_code=404, detail="Gasto no encontrado")
     return {"ok": True}
+
+
+@router.get("/finance")
+async def get_finance(month: Optional[str] = Query(None)):
+    db = get_db()
+    period = month or datetime.utcnow().strftime("%Y-%m")
+    doc = await db["monthly_finances"].find_one(
+        {"user_id": current_user_id(), "period": period}
+    )
+    if not doc:
+        return {"period": period, "salary": None, "budget": None, "currency": "ARS", "notes": None}
+    return {
+        "period": period,
+        "salary": doc.get("salary"),
+        "budget": doc.get("budget"),
+        "currency": doc.get("currency", "ARS"),
+        "notes": doc.get("notes"),
+    }
 
 
 @router.get("/summary")

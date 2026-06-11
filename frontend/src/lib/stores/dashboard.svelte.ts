@@ -182,11 +182,25 @@ function isoDateFromLegacy(value: string | null | undefined, period: string) {
     return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}`
 }
 
+type MonthlyFinance = {
+    salary: number | null
+    budget: number | null
+    currency: string
+}
+
+function budgetStatus(spent: number, budgeted: number | null | undefined): BudgetStatus {
+    if (budgeted === null || budgeted === undefined || budgeted <= 0) return 'unset'
+    if (spent > budgeted) return 'exceeded'
+    if (spent > budgeted * 0.8) return 'warning'
+    return 'ok'
+}
+
 function buildDashboard(
     period: string,
     expensesRaw: LegacyExpense[],
     previousTotal: number,
     summaryTotal: number,
+    finance: MonthlyFinance | null,
     filters: DashboardQuery,
 ): DashboardData {
     const allMovements = expensesRaw.map((expense) => {
@@ -241,14 +255,51 @@ function buildDashboard(
         return { date, amount, cumulative }
     })
 
-    const budgets = CATEGORY_LABELS.map((category) => ({
-        category,
-        budgeted: null,
-        spent: roundMoney(categoryTotals.get(category)?.amount ?? 0),
-        remaining: null,
-        used_pct: null,
-        status: 'unset' as BudgetStatus,
-    }))
+    const salary = finance?.salary ?? null
+    const budget = finance?.budget ?? null
+
+    const generalBudget: DashboardBudgetItem = {
+        category: 'Presupuesto general',
+        budgeted: budget,
+        spent: expenses,
+        remaining: budget !== null ? roundMoney(budget - expenses) : null,
+        used_pct: budget ? roundMoney((expenses / budget) * 100) : null,
+        status: budgetStatus(expenses, budget),
+    }
+
+    const budgets = [
+        generalBudget,
+        ...CATEGORY_LABELS.map((category) => ({
+            category,
+            budgeted: null,
+            spent: roundMoney(categoryTotals.get(category)?.amount ?? 0),
+            remaining: null,
+            used_pct: null,
+            status: 'unset' as BudgetStatus,
+        })),
+    ]
+
+    const alerts: DashboardAlert[] = []
+    if (generalBudget.status === 'exceeded') {
+        alerts.push({
+            category: 'Presupuesto general',
+            message: `Te pasaste del presupuesto del mes: gastaste $${expenses.toLocaleString('es-AR')} de $${(budget ?? 0).toLocaleString('es-AR')}.`,
+            level: 'danger',
+        })
+    } else if (generalBudget.status === 'warning') {
+        alerts.push({
+            category: 'Presupuesto general',
+            message: `Usaste mas del 80% del presupuesto del mes ($${expenses.toLocaleString('es-AR')} de $${(budget ?? 0).toLocaleString('es-AR')}).`,
+            level: 'warning',
+        })
+    }
+    if (salary !== null && expenses > salary) {
+        alerts.push({
+            category: 'Ingresos',
+            message: 'Los gastos del mes superan los ingresos registrados.',
+            level: 'danger',
+        })
+    }
 
     const delta = roundMoney(expenses - previousTotal)
     const deltaPct = previousTotal ? roundMoney((delta / previousTotal) * 100) : null
@@ -256,12 +307,12 @@ function buildDashboard(
     return {
         summary: {
             period,
-            income: 0,
+            income: salary ?? 0,
             expenses: visibleExpenses || expenses,
-            available_balance: -expenses,
-            monthly_savings: 0,
-            budget: null,
-            budget_used_pct: null,
+            available_balance: roundMoney((salary ?? 0) - expenses),
+            monthly_savings: salary !== null ? roundMoney(salary - expenses) : 0,
+            budget,
+            budget_used_pct: budget ? roundMoney((expenses / budget) * 100) : null,
             daily_average_expense: dailyAverage,
             previous_month_expenses: previousTotal,
             month_over_month_delta: delta,
@@ -275,7 +326,7 @@ function buildDashboard(
         budgets,
         movements: [...movements].sort((a, b) => b.fecha.localeCompare(a.fecha)).slice(0, 50),
         topExpenses: [...movements].sort((a, b) => b.monto - a.monto).slice(0, 5),
-        alerts: [],
+        alerts,
         filters: {
             categories: [...new Set(allMovements.map((item) => item.categoria))].sort(),
             paymentMethods: [],
@@ -321,10 +372,12 @@ export async function loadDashboard(nextFilters?: Partial<DashboardQuery>) {
     _loading = true
     _error = ''
     try {
-        const [expensesRaw, summaryRaw, previousSummaryRaw] = await Promise.all([
+        const [expensesRaw, summaryRaw, previousSummaryRaw, financeRaw] = await Promise.all([
             api.getExpenses(_filters.month),
             api.getSummary(_filters.month),
             api.getSummary(previousMonth(_filters.month)),
+            // Backend viejo puede no tener /finance todavia; el dashboard no debe romperse.
+            api.getFinance(_filters.month).catch(() => null),
         ])
 
         _data = buildDashboard(
@@ -332,6 +385,7 @@ export async function loadDashboard(nextFilters?: Partial<DashboardQuery>) {
             expensesRaw as LegacyExpense[],
             Number(previousSummaryRaw.total ?? 0),
             Number(summaryRaw.total ?? 0),
+            financeRaw,
             _filters,
         )
     } catch (error) {

@@ -97,7 +97,7 @@
     const totalMes = $derived(gastos.reduce((acc: number, g) => acc + g.monto, 0))
 </script>
 
-<div class="relative flex max-h-[calc(100vh-120px)] flex-col gap-4 overflow-y-auto p-4 pb-24">
+<div class="relative flex h-full flex-col gap-4 overflow-y-auto p-4 pb-24">
     {#if cargando && gastos.length === 0}
         <div class="py-8 text-center text-sm text-muted-foreground">
             Cargando gastos...

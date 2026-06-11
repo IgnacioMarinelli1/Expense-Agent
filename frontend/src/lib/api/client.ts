@@ -250,6 +250,17 @@ export const api = {
         }, handlers)
     },
 
+    getFinance(mes?: string) {
+        const query = mes ? `?month=${mes}` : ''
+        return request<{
+            period: string
+            salary: number | null
+            budget: number | null
+            currency: string
+            notes: string | null
+        }>(`/finance${query}`)
+    },
+
     getSummary(mes?: string) {
         const query = mes ? `?month=${mes}` : ''
         return request<{

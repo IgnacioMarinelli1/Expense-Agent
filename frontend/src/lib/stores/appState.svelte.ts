@@ -39,12 +39,15 @@ let _ultimaActualizacion = $state(0)
 // ─── Función de refetch ───────────────────────────────────────────────────────
 
 export async function invalidar(mes?: string): Promise<void> {
+    // Sin mes explicito refrescamos el mes actual: si no, un refetch post-escritura
+    // mezcla gastos de todos los periodos en la vista.
+    const periodo = mes ?? new Date().toISOString().slice(0, 7)
     _cargando = true
     _error = ''
     try {
         const [gastosRaw, resumenRaw] = await Promise.all([
-            api.getExpenses(mes),
-            api.getSummary(mes)
+            api.getExpenses(periodo),
+            api.getSummary(periodo)
         ])
 
         // Mapear del formato de la API (inglés) al formato interno (español)
