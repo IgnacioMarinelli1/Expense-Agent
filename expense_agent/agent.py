@@ -9,6 +9,13 @@ from google.adk.features import FeatureName, override_feature_enabled
 from google.adk.tools.agent_tool import AgentTool
 from google.adk.tools.mcp_tool import MCPToolset
 from google.adk.tools.mcp_tool.mcp_session_manager import StreamableHTTPConnectionParams
+# Patch McpTool (the real class, not the deprecated MCPTool wrapper) to always
+# use _to_gemini_schema which strips additionalProperties that Gemini rejects.
+from google.adk.tools.mcp_tool.mcp_tool import McpTool as _McpTool
+from google.adk.tools._gemini_schema_util import _to_gemini_schema as _adk_to_gemini_schema
+from google.genai.types import FunctionDeclaration as _FunctionDeclaration
+from db.security import current_user_id
+
 
 override_feature_enabled(FeatureName.JSON_SCHEMA_FOR_FUNC_DECL, False)
 
@@ -29,13 +36,6 @@ def _mcp_auth_headers() -> dict[str, str]:
         return {"Authorization": f"Bearer {token}"}
     except Exception:
         return {}
-
-# Patch McpTool (the real class, not the deprecated MCPTool wrapper) to always
-# use _to_gemini_schema which strips additionalProperties that Gemini rejects.
-from google.adk.tools.mcp_tool.mcp_tool import McpTool as _McpTool
-from google.adk.tools._gemini_schema_util import _to_gemini_schema as _adk_to_gemini_schema
-from google.genai.types import FunctionDeclaration as _FunctionDeclaration
-from db.security import current_user_id
 
 def _patched_get_declaration(self):
     input_schema = self._mcp_tool.inputSchema

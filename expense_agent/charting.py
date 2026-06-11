@@ -538,8 +538,8 @@ def build_custom_chart_spec(
     chart_type: str,
     option: dict[str, Any],
     subtitle: str = "Generado por agente de visualización",
-    insights: list[str] = None,
-    source: dict[str, Any] = None,
+    insights: list[str] | None = None,
+    source: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Builds a ChartSpec from an agent-authored ECharts option."""
     if mode not in {"2d", "3d"}:
@@ -574,8 +574,8 @@ async def generate_custom_chart(
     chart_type: str,
     option: str,
     subtitle: str = "Generado por agente de visualización",
-    insights: list[str] = None,
-    source: str = None,
+    insights: list[str] | None = None,
+    source: str | None = None,
 ) -> dict[str, Any]:
     """Genera un ChartSpec desde opciones completas de ECharts creadas por el agente.
 
@@ -713,12 +713,12 @@ async def generate_financial_chart(
     chart_type: str = "auto",
     visual_mode: str = "auto",
     metric: str = "amount",
-    period: str = None,
-    compare_period: str = None,
+    period: str | None = None,
+    compare_period: str | None = None,
     group_by: str = "category",
-    secondary_group_by: str = None,
-    status: str = None,
-    currency: str = None,
+    secondary_group_by: str | None = None,
+    status: str | None = None,
+    currency: str | None = None,
     theme: str = "auto",
     limit: int = 12,
 ) -> dict[str, Any]:
@@ -848,10 +848,10 @@ async def build_chart_spec_from_request(request: dict[str, Any]) -> dict[str, An
 
 
 async def get_chart_source_data(
-    period: str = None,
-    compare_period: str = None,
-    status: str = None,
-    currency: str = None,
+    period: str | None = None,
+    compare_period: str | None = None,
+    status: str | None = None,
+    currency: str | None = None,
     limit: int = 80,
 ) -> dict[str, Any]:
     """Devuelve pagos resumidos para que el agente de visualización categorice semánticamente.

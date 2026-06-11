@@ -4,6 +4,7 @@ import json
 import logging
 import os
 import time
+from typing import Any
 from urllib.parse import urlparse
 
 import httpx
@@ -55,7 +56,7 @@ async def _get_agent_auth_headers() -> dict[str, str]:
         import google.auth.transport.requests
         import google.oauth2.id_token
 
-        def _fetch() -> str:
+        def _fetch() -> str | Any:
             req = google.auth.transport.requests.Request()
             return google.oauth2.id_token.fetch_id_token(req, audience)
 
@@ -287,9 +288,6 @@ async def _stream_agent_remote(content: Content, modality_label: str = "mensaje"
         logger.exception("Remote agent stream failed")
         message = _agent_error_message(exc, modality_label) or "No pude procesar tu mensaje."
         yield _sse("error", {"message": message})
-
-
-# ---------------------------------------------------------------------------
 
 class MessageRequest(BaseModel):
     text: str

@@ -16,7 +16,7 @@ def _deep_strip_schema(schema):
         logger.info("Stripped additional_properties on %s: %r -> %r", type(schema).__name__, before, after)
 
     props = getattr(schema, 'properties', None) or {}
-    for name, sub in props.items():
+    for _, sub in props.items():
         _deep_strip_schema(sub)
     if getattr(schema, 'items', None):
         _deep_strip_schema(schema.items)

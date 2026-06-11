@@ -1,9 +1,7 @@
 import type { ChartSpec } from '$lib/stores/expenses'
 
-// URL del backend. En dev local, si VITE_API_URL no está configurado, usa :8000.
 const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
 
-// ─── Paths que modifican la DB ────────────────────────────────────────────────
 const WRITE_PATHS = [
     '/gastos',           // POST crear gasto
     '/gastos/',          // PATCH marcar pagado
