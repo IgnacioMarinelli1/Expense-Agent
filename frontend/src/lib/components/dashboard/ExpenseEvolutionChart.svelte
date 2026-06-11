@@ -2,6 +2,7 @@
     import { onDestroy, onMount } from 'svelte'
     import { Chart, registerables } from 'chart.js'
     import type { DashboardEvolutionPoint } from '$lib/stores/dashboard.svelte'
+    import { formatArs, currency } from '$lib/stores/currency.svelte'
 
     Chart.register(...registerables)
 
@@ -44,14 +45,15 @@
                 plugins: { legend: { position: 'bottom' } },
                 scales: {
                     x: { grid: { display: false } },
-                    y: { beginAtZero: true, ticks: { callback: (value) => '$' + Number(value).toLocaleString('es-AR') } },
+                    y: { beginAtZero: true, ticks: { callback: (value) => formatArs(Number(value)) } },
                 },
             },
         })
     }
 
     onMount(render)
-    $effect(() => { if (canvas) render() })
+    // Re-render al cambiar datos o la moneda de visualizacion.
+    $effect(() => { evolution; currency.display; currency.rates; if (canvas) render() })
     onDestroy(() => chart?.destroy())
 </script>
 

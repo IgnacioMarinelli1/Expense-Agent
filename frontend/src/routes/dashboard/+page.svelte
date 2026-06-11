@@ -10,14 +10,14 @@
     import RecentMovementsTable from '$lib/components/dashboard/RecentMovementsTable.svelte'
     import TopExpenses from '$lib/components/dashboard/TopExpenses.svelte'
     import DashboardAlerts from '$lib/components/dashboard/DashboardAlerts.svelte'
+    import { formatArs } from '$lib/stores/currency.svelte'
 
     const data = $derived(dashboardState.data)
     const filters = $derived(dashboardState.filters)
     const loading = $derived(dashboardState.loading)
     const error = $derived(dashboardState.error)
 
-    const fmt = (value: number | null | undefined) =>
-        '$' + Number(value ?? 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })
+    const fmt = (value: number | null | undefined) => formatArs(value)
 
     function updateFilters(next: Partial<DashboardQuery>) {
         loadDashboard(next)

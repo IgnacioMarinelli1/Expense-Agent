@@ -10,8 +10,13 @@
 		Sun,
 		Moon,
 	} from "@lucide/svelte";
+	import { currency, toggleCurrency, ensureRates } from "$lib/stores/currency.svelte";
 
 	const { children } = $props();
+
+	const usdRateLabel = $derived(
+		currency.usdRate ? `1 USD ≈ $${Math.round(currency.usdRate).toLocaleString("es-AR")}` : "Cotización blue",
+	);
 
 	const navItems = [
 		{ href: "/", label: "Chat", icon: MessageCircle },
@@ -43,6 +48,7 @@
 			? stored === "dark"
 			: window.matchMedia("(prefers-color-scheme: dark)").matches;
 		applyTheme();
+		ensureRates();
 	});
 </script>
 
@@ -72,6 +78,16 @@
 
 			<div class="flex items-center gap-3">
 				<span class="text-xs text-muted-foreground">{currentMonthLabel}</span>
+				<button
+					onclick={toggleCurrency}
+					aria-label="Cambiar moneda"
+					title={usdRateLabel}
+					class="flex h-8 items-center gap-1 rounded-md border border-border px-2 text-xs font-semibold text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:scale-95"
+				>
+					<span class={currency.display === "ARS" ? "text-foreground" : ""}>ARS</span>
+					<span class="text-border">/</span>
+					<span class={currency.display === "USD" ? "text-foreground" : ""}>USD</span>
+				</button>
 				<button
 					onclick={toggleTheme}
 					aria-label="Cambiar tema"

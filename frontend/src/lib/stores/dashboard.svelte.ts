@@ -1,4 +1,5 @@
 import { api } from '$lib/api/client'
+import { ensureRates, toArs, formatArs } from '$lib/stores/currency.svelte'
 
 export type DashboardTypeFilter = 'all' | 'expense' | 'income'
 export type BudgetStatus = 'ok' | 'warning' | 'exceeded' | 'unset'
@@ -95,6 +96,7 @@ type LegacyExpense = {
     type: string
     category: string
     amount: number
+    currency?: string | null
     date?: string | null
     due_date?: string | null
     paid: boolean
@@ -154,6 +156,23 @@ function roundMoney(value: number) {
     return Math.round((value + Number.EPSILON) * 100) / 100
 }
 
+// Convierte el total de /summary a ARS base. Si el backend trae el desglose por
+// moneda lo usa; si no (backend viejo), asume que el total ya esta en ARS.
+function summaryToArs(summary: {
+    total?: number
+    by_currency?: Record<string, { total: number }>
+} | null | undefined): number {
+    if (!summary) return 0
+    if (summary.by_currency) {
+        let acc = 0
+        for (const [cur, row] of Object.entries(summary.by_currency)) {
+            acc += toArs(Number(row.total ?? 0), cur)
+        }
+        return roundMoney(acc)
+    }
+    return roundMoney(Number(summary.total ?? 0))
+}
+
 function normalizeCategory(raw: string | null | undefined, description = '') {
     const text = (raw ?? '').trim()
     if (CATEGORY_LABELS.includes(text)) return text
@@ -199,10 +218,11 @@ function buildDashboard(
     period: string,
     expensesRaw: LegacyExpense[],
     previousTotal: number,
-    summaryTotal: number,
     finance: MonthlyFinance | null,
     filters: DashboardQuery,
 ): DashboardData {
+    // Todo se normaliza a ARS (base de calculo) usando la cotizacion en vivo.
+    // El formateo a la moneda de visualizacion (ARS/USD) ocurre en los componentes.
     const allMovements = expensesRaw.map((expense) => {
         const category = normalizeCategory(expense.category, expense.type)
         return {
@@ -214,7 +234,7 @@ function buildDashboard(
             descripcion: expense.type,
             medioPago: null,
             cuenta: null,
-            monto: Number(expense.amount ?? 0),
+            monto: roundMoney(toArs(Number(expense.amount ?? 0), expense.currency ?? 'ARS')),
             esFijo: false,
             createdAt: null,
             updatedAt: null,
@@ -225,7 +245,7 @@ function buildDashboard(
     if (filters.category) movements = movements.filter((item) => item.categoria === filters.category)
     if (filters.type === 'income') movements = []
 
-    const expenses = roundMoney(summaryTotal || allMovements.reduce((sum, item) => sum + item.monto, 0))
+    const expenses = roundMoney(allMovements.reduce((sum, item) => sum + item.monto, 0))
     const visibleExpenses = roundMoney(movements.reduce((sum, item) => sum + item.monto, 0))
     const dayCount = analysisDayCount(period)
     const dailyAverage = roundMoney(expenses / dayCount)
@@ -255,8 +275,14 @@ function buildDashboard(
         return { date, amount, cumulative }
     })
 
-    const salary = finance?.salary ?? null
-    const budget = finance?.budget ?? null
+    // Sueldo/presupuesto pueden estar en otra moneda (ej: sueldo en USD): a ARS base.
+    const financeCurrency = finance?.currency ?? 'ARS'
+    const salary = finance?.salary !== null && finance?.salary !== undefined
+        ? roundMoney(toArs(finance.salary, financeCurrency))
+        : null
+    const budget = finance?.budget !== null && finance?.budget !== undefined
+        ? roundMoney(toArs(finance.budget, financeCurrency))
+        : null
 
     const generalBudget: DashboardBudgetItem = {
         category: 'Presupuesto general',
@@ -283,13 +309,13 @@ function buildDashboard(
     if (generalBudget.status === 'exceeded') {
         alerts.push({
             category: 'Presupuesto general',
-            message: `Te pasaste del presupuesto del mes: gastaste $${expenses.toLocaleString('es-AR')} de $${(budget ?? 0).toLocaleString('es-AR')}.`,
+            message: `Te pasaste del presupuesto del mes: gastaste ${formatArs(expenses)} de ${formatArs(budget ?? 0)}.`,
             level: 'danger',
         })
     } else if (generalBudget.status === 'warning') {
         alerts.push({
             category: 'Presupuesto general',
-            message: `Usaste mas del 80% del presupuesto del mes ($${expenses.toLocaleString('es-AR')} de $${(budget ?? 0).toLocaleString('es-AR')}).`,
+            message: `Usaste mas del 80% del presupuesto del mes (${formatArs(expenses)} de ${formatArs(budget ?? 0)}).`,
             level: 'warning',
         })
     }
@@ -372,9 +398,10 @@ export async function loadDashboard(nextFilters?: Partial<DashboardQuery>) {
     _loading = true
     _error = ''
     try {
-        const [expensesRaw, summaryRaw, previousSummaryRaw, financeRaw] = await Promise.all([
+        // Necesitamos las cotizaciones antes de normalizar montos a ARS.
+        await ensureRates()
+        const [expensesRaw, previousSummaryRaw, financeRaw] = await Promise.all([
             api.getExpenses(_filters.month),
-            api.getSummary(_filters.month),
             api.getSummary(previousMonth(_filters.month)),
             // Backend viejo puede no tener /finance todavia; el dashboard no debe romperse.
             api.getFinance(_filters.month).catch(() => null),
@@ -383,8 +410,7 @@ export async function loadDashboard(nextFilters?: Partial<DashboardQuery>) {
         _data = buildDashboard(
             _filters.month,
             expensesRaw as LegacyExpense[],
-            Number(previousSummaryRaw.total ?? 0),
-            Number(summaryRaw.total ?? 0),
+            summaryToArs(previousSummaryRaw),
             financeRaw,
             _filters,
         )

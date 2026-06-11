@@ -2,6 +2,7 @@
     import { onDestroy, onMount } from 'svelte'
     import { Chart, registerables } from 'chart.js'
     import type { DashboardCategory } from '$lib/stores/dashboard.svelte'
+    import { formatArs, currency } from '$lib/stores/currency.svelte'
 
     Chart.register(...registerables)
 
@@ -9,7 +10,7 @@
     let canvas = $state<HTMLCanvasElement | undefined>(undefined)
     let chart: Chart | null = null
 
-    const fmt = (value: number) => '$' + value.toLocaleString('es-AR', { maximumFractionDigits: 0 })
+    const fmt = (value: number) => formatArs(value)
 
     function render() {
         if (!canvas) return
@@ -37,7 +38,8 @@
     }
 
     onMount(render)
-    $effect(() => { if (canvas) render() })
+    // Re-render al cambiar datos o la moneda de visualizacion.
+    $effect(() => { categories; currency.display; currency.rates; if (canvas) render() })
     onDestroy(() => chart?.destroy())
 </script>
 

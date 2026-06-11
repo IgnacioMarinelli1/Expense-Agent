@@ -269,6 +269,15 @@ export const api = {
             pending: number
             payments_count: number
             pending_count: number
+            by_currency?: Record<string, { total: number; paid: number; pending: number }>
         }>(`/summary${query}`)
+    },
+
+    getFx() {
+        return request<{
+            base: string
+            rates: Record<string, number>
+            updated_at: string
+        }>('/fx')
     },
 }

@@ -73,6 +73,7 @@ def _to_expense(doc: dict) -> dict:
         "type": expense_type,
         "category": _category(expense_type),
         "amount": doc.get("amount", 0),
+        "currency": doc.get("currency", "ARS"),
         "date": _fmt(doc.get("payment_date")),
         "due_date": _fmt(doc.get("due_date")),
         "paid": doc.get("status") == "paid",
@@ -149,17 +150,33 @@ async def get_finance(month: Optional[str] = Query(None)):
     }
 
 
+@router.get("/fx")
+async def get_fx():
+    """Cotizaciones para que el frontend convierta entre monedas al vuelo.
+    `rates` son ARS por 1 unidad de la moneda (ARS=1, USD=blue venta)."""
+    from expense_agent.charting import _fetch_fx_rates
+
+    rates = await _fetch_fx_rates()
+    return {
+        "base": "ARS",
+        "rates": rates,
+        "updated_at": datetime.utcnow().isoformat(),
+    }
+
+
 @router.get("/summary")
 async def get_summary(month: Optional[str] = Query(None)):
     db = get_db()
     match: dict = {"user_id": current_user_id()}
     if month:
         match["period"] = month
+    # Agrupamos por moneda: sumar montos de distintas monedas en crudo no tiene
+    # sentido. El frontend convierte cada moneda a la de visualizacion.
     pipeline = [
         {"$match": match},
         {
             "$group": {
-                "_id": None,
+                "_id": {"$ifNull": ["$currency", "ARS"]},
                 "total": {"$sum": "$amount"},
                 "paid": {"$sum": {"$cond": [{"$eq": ["$status", "paid"]}, "$amount", 0]}},
                 "pending": {"$sum": {"$cond": [{"$ne": ["$status", "paid"]}, "$amount", 0]}},
@@ -167,9 +184,30 @@ async def get_summary(month: Optional[str] = Query(None)):
                 "pending_count": {"$sum": {"$cond": [{"$ne": ["$status", "paid"]}, 1, 0]}},
             }
         },
-        {"$project": {"_id": 0}},
     ]
-    results = await db["payments"].aggregate(pipeline).to_list(length=1)
-    if not results:
-        return {"total": 0, "paid": 0, "pending": 0, "payments_count": 0, "pending_count": 0}
-    return results[0]
+    rows = await db["payments"].aggregate(pipeline).to_list(length=20)
+
+    by_currency: dict = {}
+    total = paid = pending = payments_count = pending_count = 0
+    for row in rows:
+        currency = row["_id"] or "ARS"
+        by_currency[currency] = {
+            "total": row["total"],
+            "paid": row["paid"],
+            "pending": row["pending"],
+        }
+        # `total` legacy = suma cruda (se mantiene por compatibilidad).
+        total += row["total"]
+        paid += row["paid"]
+        pending += row["pending"]
+        payments_count += row["payments_count"]
+        pending_count += row["pending_count"]
+
+    return {
+        "total": total,
+        "paid": paid,
+        "pending": pending,
+        "payments_count": payments_count,
+        "pending_count": pending_count,
+        "by_currency": by_currency,
+    }

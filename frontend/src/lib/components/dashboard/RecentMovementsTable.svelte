@@ -1,9 +1,10 @@
 <script lang="ts">
     import type { DashboardMovement } from '$lib/stores/dashboard.svelte'
+    import { formatArs } from '$lib/stores/currency.svelte'
 
     let { movements }: { movements: DashboardMovement[] } = $props()
 
-    const fmt = (value: number) => '$' + value.toLocaleString('es-AR', { maximumFractionDigits: 0 })
+    const fmt = (value: number) => formatArs(value)
 </script>
 
 <section class="rounded-lg border border-border bg-card">

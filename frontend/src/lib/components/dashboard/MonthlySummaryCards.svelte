@@ -1,11 +1,11 @@
 <script lang="ts">
     import { ArrowDownRight, ArrowUpRight, PiggyBank, Wallet, Gauge, CalendarDays } from '@lucide/svelte'
     import type { DashboardSummary } from '$lib/stores/dashboard.svelte'
+    import { formatArs } from '$lib/stores/currency.svelte'
 
     let { summary }: { summary: DashboardSummary } = $props()
 
-    const fmt = (value: number | null | undefined) =>
-        '$' + Number(value ?? 0).toLocaleString('es-AR', { maximumFractionDigits: 0 })
+    const fmt = (value: number | null | undefined) => formatArs(value)
 
     const pct = (value: number | null | undefined) =>
         value === null || value === undefined ? 'Sin presupuesto' : `${Math.round(value)}%`

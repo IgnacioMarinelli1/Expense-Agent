@@ -1,6 +1,7 @@
 <script lang="ts">
     import { onMount } from 'svelte'
     import { appState, invalidar } from '$lib/stores/appState.svelte'
+    import { formatAmount, formatArs, toArs } from '$lib/stores/currency.svelte'
     import { api } from '$lib/api/client'
     import { Check, CheckCircle2, Plus } from '@lucide/svelte'
     import ExpenseForm, { type ExpenseFormSeed, type ExpenseFormValue } from '$lib/components/ExpenseForm.svelte'
@@ -94,7 +95,8 @@
     const error = $derived(appState.error)
     const pendientes = $derived(gastos.filter((g) => !g.pagado))
     const pagados = $derived(gastos.filter((g) => g.pagado))
-    const totalMes = $derived(gastos.reduce((acc: number, g) => acc + g.monto, 0))
+    // Sumamos en ARS base (cada gasto puede estar en otra moneda) y formateamos en la de visualizacion.
+    const totalMesArs = $derived(gastos.reduce((acc: number, g) => acc + toArs(g.monto, g.moneda), 0))
 </script>
 
 <div class="relative flex h-full flex-col gap-4 overflow-y-auto p-4 pb-24">
@@ -111,7 +113,7 @@
             <div>
                 <p class="mb-1 text-xs opacity-80">Total del mes</p>
                 <p class="text-2xl font-semibold">
-                    ${totalMes.toLocaleString('es-AR')}
+                    {formatArs(totalMesArs)}
                 </p>
             </div>
             <div class="text-right">
@@ -145,7 +147,7 @@
                                 </div>
                             </div>
                             <div class="flex shrink-0 items-center gap-2">
-                                <p class="font-semibold">${gasto.monto.toLocaleString('es-AR')}</p>
+                                <p class="font-semibold">{formatAmount(gasto.monto, gasto.moneda)}</p>
                                 <button
                                     type="button"
                                     onclick={() => marcarPagado(gasto.id)}
@@ -185,7 +187,7 @@
                                 </div>
                             </div>
                             <div class="flex shrink-0 items-center gap-2">
-                                <p class="font-semibold">${gasto.monto.toLocaleString('es-AR')}</p>
+                                <p class="font-semibold">{formatAmount(gasto.monto, gasto.moneda)}</p>
                                 <ExpenseRowMenu
                                     onEdit={() => openEdit(gasto)}
                                     onDelete={() => handleDelete(gasto)}

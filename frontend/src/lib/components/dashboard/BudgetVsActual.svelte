@@ -1,10 +1,11 @@
 <script lang="ts">
     import type { DashboardBudgetItem } from '$lib/stores/dashboard.svelte'
+    import { formatArs } from '$lib/stores/currency.svelte'
 
     let { budgets }: { budgets: DashboardBudgetItem[] } = $props()
 
     const fmt = (value: number | null | undefined) =>
-        value === null || value === undefined ? 'Sin definir' : '$' + value.toLocaleString('es-AR', { maximumFractionDigits: 0 })
+        value === null || value === undefined ? 'Sin definir' : formatArs(value)
 
     function color(status: DashboardBudgetItem['status']) {
         if (status === 'exceeded') return 'bg-red-500'

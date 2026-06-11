@@ -6,6 +6,7 @@
  */
 
 import { api } from '$lib/api/client'
+import { ensureRates } from '$lib/stores/currency.svelte'
 
 // ─── Tipos ────────────────────────────────────────────────────────────────────
 
@@ -13,7 +14,8 @@ export interface Gasto {
     id: string
     tipo: string
     categoria: string
-    monto: number
+    monto: number       // en moneda nativa (ver `moneda`); se convierte al mostrar
+    moneda: string
     fecha: string
     vencimiento?: string
     pagado: boolean
@@ -45,6 +47,7 @@ export async function invalidar(mes?: string): Promise<void> {
     _cargando = true
     _error = ''
     try {
+        await ensureRates()
         const [gastosRaw, resumenRaw] = await Promise.all([
             api.getExpenses(periodo),
             api.getSummary(periodo)
@@ -56,6 +59,7 @@ export async function invalidar(mes?: string): Promise<void> {
             tipo:        e.type,
             categoria:   e.category,
             monto:       e.amount,
+            moneda:      e.currency ?? 'ARS',
             fecha:       e.date,
             vencimiento: e.due_date,
             pagado:      e.paid,
