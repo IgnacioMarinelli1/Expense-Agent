@@ -1,32 +1,53 @@
 import type { ChartSpec } from '$lib/stores/expenses'
 
-const BASE_URL = import.meta.env.VITE_API_URL ?? (typeof window !== 'undefined' ? `${window.location.protocol}//${window.location.hostname}:8000` : 'http://localhost:8000')
+const BASE_URL =
+    import.meta.env.VITE_API_URL ??
+    (typeof window !== 'undefined'
+        ? `${window.location.protocol}//${window.location.hostname}:8000`
+        : 'http://localhost:8000')
 
 const WRITE_PATHS = [
-    '/gastos',           // POST crear gasto
-    '/gastos/',          // PATCH marcar pagado
-    '/agente/mensaje',   // POST chat (puede crear gastos internamente)
-    '/agente/audio',     // POST audio
-    '/agente/imagen',    // POST imagen
+    '/expenses',
+    '/expenses/',
+    '/payments',
+    '/payments/',
+    '/agent/message',
+    '/agent/audio',
+    '/agent/image',
+    '/gastos',
+    '/agente/mensaje',
+    '/agente/audio',
+    '/agente/imagen',
 ]
 
 function esEscritura(method: string, path: string): boolean {
     const m = method.toUpperCase()
     if (m === 'GET') return false
-    return WRITE_PATHS.some(p => path.startsWith(p))
+    return WRITE_PATHS.some((p) => path.startsWith(p))
 }
 
-// Importación lazy para evitar ciclos de dependencia
 async function dispararRefetch() {
     try {
         const { invalidar } = await import('$lib/stores/appState.svelte')
         await invalidar()
+
+        const dashboard = await import('$lib/stores/dashboard.svelte')
+        await dashboard.loadDashboard()
     } catch {
-        // silencioso — no rompe la operación principal
+        // El refetch no debe romper la operacion principal.
     }
 }
 
-// ─── Tipos ────────────────────────────────────────────────────────────────────
+function ddmmToIso(value?: string | null) {
+    if (!value) return undefined
+    if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value
+
+    const [day, month] = value.split('/')
+    if (!day || !month) return undefined
+
+    const year = new Date().getFullYear()
+    return `${year}-${month.padStart(2, '0')}-${day.padStart(2, '0')}T00:00:00`
+}
 
 type StreamHandlers = {
     onToken: (text: string) => void
@@ -36,13 +57,11 @@ type StreamHandlers = {
     onChart?: (chart: ChartSpec) => void
 }
 
-// ─── Request base ─────────────────────────────────────────────────────────────
-
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
     const method = options?.method ?? 'GET'
     const res = await fetch(`${BASE_URL}${path}`, {
         headers: { 'Content-Type': 'application/json' },
-        ...options
+        ...options,
     })
 
     if (!res.ok) {
@@ -51,7 +70,6 @@ async function request<T>(path: string, options?: RequestInit): Promise<T> {
 
     const data = res.json() as Promise<T>
 
-    // Dispara refetch automático tras escrituras
     if (esEscritura(method, path)) {
         dispararRefetch()
     }
@@ -74,8 +92,8 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
     let buffer = ''
 
     function processEvent(rawEvent: string) {
-        const eventLine = rawEvent.split('\n').find(line => line.startsWith('event: '))
-        const dataLine = rawEvent.split('\n').find(line => line.startsWith('data: '))
+        const eventLine = rawEvent.split('\n').find((line) => line.startsWith('event: '))
+        const dataLine = rawEvent.split('\n').find((line) => line.startsWith('data: '))
         if (!eventLine || !dataLine) return
 
         const event = eventLine.slice(7).trim()
@@ -87,7 +105,6 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
         if (event === 'chart') handlers.onChart?.(data)
         if (event === 'done') {
             handlers.onDone?.()
-            // Dispara refetch tras streaming de escritura
             if (esEscritura(options.method ?? 'POST', path)) {
                 dispararRefetch()
             }
@@ -110,16 +127,12 @@ async function streamRequest(path: string, options: RequestInit, handlers: Strea
     if (buffer.trim()) processEvent(buffer)
 }
 
-// ── Gastos ──────────────────────────────────────────
-
 export const api = {
-    // Obtener todos los gastos del mes
     getExpenses(mes?: string) {
         const query = mes ? `?month=${mes}` : ''
         return request<any[]>(`/expenses${query}`)
     },
 
-    // Registrar un gasto nuevo
     createExpense(datos: {
         type: string
         category: string
@@ -131,32 +144,64 @@ export const api = {
     }) {
         return request('/expenses', {
             method: 'POST',
-            body: JSON.stringify(datos)
+            body: JSON.stringify(datos),
         })
     },
 
-    // Marcar un gasto como pagado
     markPaid(id: string) {
         return request(`/expenses/${id}/pay`, {
-            method: 'PATCH'
+            method: 'PATCH',
         })
     },
 
-    // ── Agente ────────────────────────────────────────
+    updateExpense(
+        id: string,
+        datos: {
+            type?: string
+            category?: string
+            amount?: number
+            date?: string
+            due_date?: string | null
+            paid?: boolean
+            notes?: string | null
+        },
+    ) {
+        return request(`/payments/${id}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+                amount: datos.amount,
+                payment_date: ddmmToIso(datos.date),
+                due_date: ddmmToIso(datos.due_date),
+                status: datos.paid === undefined ? undefined : datos.paid ? 'paid' : 'pending',
+                notes: datos.type,
+                metadata: datos.notes ? { notas: datos.notes } : undefined,
+            }),
+        })
+    },
+
+    deleteExpense(id: string) {
+        return request<{ deleted: string }>(`/payments/${id}`, {
+            method: 'DELETE',
+        })
+    },
 
     sendMessage(text: string) {
         return request<{ response: string }>('/agent/message', {
             method: 'POST',
-            body: JSON.stringify({ text })
+            body: JSON.stringify({ text }),
         })
     },
 
     streamMessage(text: string, handlers: StreamHandlers) {
-        return streamRequest('/agent/message/stream', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ text })
-        }, handlers)
+        return streamRequest(
+            '/agent/message/stream',
+            {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ text }),
+            },
+            handlers,
+        )
     },
 
     async sendAudio(blob: Blob) {
@@ -165,7 +210,7 @@ export const api = {
 
         const res = await fetch(`${BASE_URL}/agent/audio`, {
             method: 'POST',
-            body: form
+            body: form,
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
@@ -178,7 +223,7 @@ export const api = {
 
         return streamRequest('/agent/audio/stream', {
             method: 'POST',
-            body: form
+            body: form,
         }, handlers)
     },
 
@@ -188,7 +233,7 @@ export const api = {
 
         const res = await fetch(`${BASE_URL}/agent/image`, {
             method: 'POST',
-            body: form
+            body: form,
         })
 
         if (!res.ok) throw new Error(`Error ${res.status}`)
@@ -201,11 +246,9 @@ export const api = {
 
         return streamRequest('/agent/image/stream', {
             method: 'POST',
-            body: form
+            body: form,
         }, handlers)
     },
-
-    // ── Resumen ───────────────────────────────────────
 
     getSummary(mes?: string) {
         const query = mes ? `?month=${mes}` : ''
@@ -216,5 +259,5 @@ export const api = {
             payments_count: number
             pending_count: number
         }>(`/summary${query}`)
-    }
+    },
 }
