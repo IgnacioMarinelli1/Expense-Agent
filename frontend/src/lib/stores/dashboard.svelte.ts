@@ -267,13 +267,14 @@ function buildDashboard(
         updatedAt: null,
     }))
 
+    const allMovements: DashboardMovement[] = [...expenseMovements, ...incomeMovements]
     let movements: DashboardMovement[]
     if (filters.type === 'income') {
         movements = incomeMovements
     } else if (filters.type === 'expense') {
         movements = expenseMovements
     } else {
-        movements = [...expenseMovements, ...incomeMovements]
+        movements = allMovements
     }
     if (filters.category) movements = movements.filter((item) => item.categoria === filters.category)
 
