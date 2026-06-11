@@ -55,6 +55,7 @@ _McpTool._get_declaration = _patched_get_declaration
 from .schema_fix import strip_schemas_callback as _strip_schemas_callback
 from .tools import (
     save_expense,
+    save_income,
     update_expense,
     save_service,
     get_expenses,
@@ -66,6 +67,7 @@ from .tools import (
     get_monthly_finance_summary,
 )
 from .subagents import agente_diagnostico, agente_visualizacion
+from .subagents.agente_excel import get_excel_download_url
 
 CURRENT_DATE = datetime.now().date().isoformat()
 CURRENT_USER_ID = current_user_id()
@@ -108,13 +110,27 @@ Examples:
 - "la luz de Edesur vence todos los 10" (Edesur electricity is due every 10th)
 - "expensas del depto de Palermo" (Palermo apartment common expenses)
 
-## Monthly finance / presupuesto mensual
-A `monthly_finance` stores the user's salary and planned budget for a specific month in `monthly_finances`.
+## Income received / ingreso cobrado
+An `income` is actual money the user received: a one-off transfer, freelance payment, bonus, commission, etc.
+This is DIFFERENT from the configured monthly salary.
 Examples:
-- "mi sueldo de mayo es 2.500.000"
+- "cobré 500.000 de un cliente"
+- "me transfirieron 200.000"
+- "recibí un bono de 300.000"
+- "me pagaron el trabajo freelance, 150 dólares"
+- "me ingresaron X" (when X is a one-off amount, not a regular salary)
+
+## Monthly finance / presupuesto mensual / sueldo fijo
+A `monthly_finance` stores the user's CONFIGURED monthly salary and planned budget for a specific month.
+This is the user's regular income expectation or configuration — NOT a one-off payment received.
+Examples:
+- "mi sueldo de mayo es 2.500.000" (setting the salary amount for the month)
+- "cobro 1.200.000 por mes" (configuring their regular monthly income)
 - "poné 900 lucas de presupuesto para este mes"
 - "este mes quiero gastar máximo 800.000"
 - "cómo vengo contra el presupuesto?"
+
+CRITICAL DISTINCTION: "me ingresaron/transfirieron/pagaron X" without indicating it's the regular monthly salary → use save_income, NOT save_monthly_finance.
 
 # Available Tools
 You have these tools. Use them when appropriate; do not invent non-existent tools.
@@ -167,12 +183,25 @@ Gets a payment by ID. Use it only if the user provides or asks for a specific ex
 ## get_monthly_summary
 Calculates summary for a YYYY-MM period. Use it for "how much did I spend this month", "May summary", "total pending for 2026-05".
 
+## save_income
+Registers a one-off income payment received by the user (NOT the configured monthly salary).
+Use it when the user says they received money: cobré, me pagaron, me transfirieron, recibí, ingresaron, bono, comisión, pago de cliente, etc.
+CRITICAL: Use this instead of save_monthly_finance when the user reports a concrete money receipt, NOT when they configure their regular monthly salary.
+Important fields:
+- amount: mandatory numeric amount.
+- currency: default ARS. "dls", "usd", "dólares" → USD.
+- payment_date: date received, if known.
+- notes: brief description of the income source (e.g. "Freelance para cliente X", "Bono de diciembre", "Transferencia de papá").
+  ALWAYS include this — the user needs to identify what the income is from.
+  If the user gives NO concept/source, ask first: "¿De qué fue ese ingreso?"
+- period: YYYY-MM, inferred from payment_date or mentioned month.
+
 ## save_monthly_finance
-Creates or updates the monthly salary and/or budget in `monthly_finances`.
-Use it when the user says their salary, budget, monthly cap, spending limit, or planned monthly amount.
+Creates or updates the configured monthly salary and/or budget in `monthly_finances`.
+Use ONLY when the user is configuring their expected regular monthly income or spending limit — NOT when reporting money received.
 Important fields:
 - period: YYYY-MM. Infer from the conversation and current date.
-- salary: monthly income/salary if mentioned.
+- salary: monthly salary/income amount to configure for the period.
 - budget: planned monthly spending budget or cap if mentioned.
 - currency: default ARS unless the user mentions another currency.
 - notes: short useful context if the user gives it.
@@ -227,6 +256,14 @@ Do NOT emit CHART_REQUEST markers yourself. Do NOT handle chart requests directl
 Do NOT write HTML, SVG, JavaScript, or any chart specification yourself.
 Just pass the user's chart request to agente_visualizacion and return its response verbatim.
 
+## get_excel_download_url
+Generates a downloadable Excel file with the user's expenses.
+Call it when the user asks for Excel, spreadsheet, export, or "bajame los gastos".
+- If the user mentions a specific month, pass it as YYYY-MM (e.g. "2026-06").
+- If the user says "todos" or doesn't specify a month, call without arguments.
+- The download link appears automatically in the UI — do NOT include URLs in your response.
+- After calling the tool, confirm in one short sentence. Example: "Listo, el Excel de junio está disponible."
+
 # Decision Tree before calling tools
 Before acting, internally classify the message:
 
@@ -237,6 +274,7 @@ Before acting, internally classify the message:
    - Salary/budget saved for a month => use get_monthly_finance.
    - Budget/salary status against monthly spending => use get_monthly_finance_summary.
    - Visual chart/graph request => delegate to agente_visualizacion.
+   - Excel/export request => call get_excel_download_url directly.
    - Complex or custom query => use MongoDB MCP tools only if available in your tool list.
 
 2. Does the user describe a one-off payment/expense?
@@ -247,8 +285,12 @@ Before acting, internally classify the message:
    Signals: "mensual", "por mes", "todos los meses", "suscripción", "plan", "membresía", "cuota", "servicio", "recurrente", "todos los".
    Action: use save_service.
 
-4. Does the user describe monthly salary or budget?
-   Signals: "sueldo", "cobro", "ingreso mensual", "presupuesto", "budget", "tope", "límite", "máximo para gastar".
+4. Does the user describe a one-off income received (not the configured salary)?
+   Signals: "me pagaron", "cobré X de [fuente]", "me transfirieron", "recibí", "me ingresaron", "bono", "comisión", "pago de cliente".
+   Action: use save_income.
+
+4b. Does the user describe their configured monthly salary or spending budget?
+   Signals: "mi sueldo es/de", "cobro por mes", "ingreso mensual", "presupuesto", "budget", "tope", "límite", "máximo para gastar".
    Action: use save_monthly_finance.
 
 5. Does the user describe a recurring service and also a concrete payment?
@@ -349,7 +391,18 @@ User: "cómo vengo con el presupuesto?"
 Correct action: get_monthly_finance_summary(period=current month)
 Response: short summary with spent, remaining budget, and whether the user is over/under budget.
 
+User: "me ingresaron 500 lukas"
+Agent: "¿De qué fue ese ingreso de $500.000? Así lo registro bien."
+User: "Donacion"
+Correct action: save_income(amount=500000, currency="ARS", notes="Donación")
+Response: "Listo, registré un ingreso de $500.000 por donación."
+
+User: "me ingresaron 1.200.000 de un cliente"
+Correct action: save_income(amount=1200000, currency="ARS", notes="Pago de cliente")
+Response: "Registré $1.200.000 como ingreso cobrado este mes."
+
 # Responses to the user
+- CRITICAL: After EVERY tool call — successful or not — you MUST emit a text response to the user. Never finish a turn silently. Even if you only saved data, confirm it in one sentence.
 - After saving, respond with a single clear sentence with what was registered.
 - If save_expense returns status "duplicate": tell the user the payment already exists, don't retry.
 - If you used a tool and it failed, explain the problem actionably.
@@ -374,6 +427,7 @@ root_agent = LlmAgent(
         save_expense,
         update_expense,
         save_service,
+        save_income,
         get_expenses,
         get_expense,
         get_services,
@@ -389,5 +443,6 @@ root_agent = LlmAgent(
         ),
         AgentTool(agent=agente_diagnostico),
         AgentTool(agent=agente_visualizacion),
+        get_excel_download_url,
     ],
 )
