@@ -53,10 +53,10 @@
 </script>
 
 <div
-	class="flex min-h-[100dvh] w-full items-center justify-center bg-zinc-900 p-4 sm:p-8"
+	class="flex min-h-[100dvh] w-full items-center justify-center bg-zinc-900 sm:p-8"
 >
 	<div
-		class="flex h-[80vh] w-full max-w-[105rem] flex-col overflow-hidden rounded-2xl bg-background text-foreground shadow-[0_0_40px_rgba(0,0,0,0.3)] transition-colors duration-300 border border-border"
+		class="flex h-[100dvh] w-full flex-col overflow-hidden bg-background text-foreground transition-colors duration-300 sm:h-[80vh] sm:max-w-[105rem] sm:rounded-2xl sm:border sm:border-border sm:shadow-[0_0_40px_rgba(0,0,0,0.3)]"
 	>
 		<header
 			class="sticky top-0 z-10 flex items-center justify-between border-b border-border bg-card/80 px-5 py-3 backdrop-blur"

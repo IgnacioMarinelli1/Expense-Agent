@@ -355,6 +355,71 @@ async def get_monthly_finance(period: str) -> dict:
     return {"status": "success", "period": period, "monthly_finance": _serialize_doc(doc)}
 
 
+async def save_income(
+    amount: float,
+    currency: str = "ARS",
+    payment_date: str = None,
+    notes: str = None,
+    period: str = None,
+) -> dict:
+    """Registra dinero recibido/cobrado de forma puntual (NO el sueldo configurado).
+    Usar cuando el usuario recibió un pago, cobró un trabajo freelance, recibió una transferencia, bono, comisión, etc.
+    NO usar para configurar el sueldo mensual fijo — para eso usar save_monthly_finance con el campo salary.
+    Retorna status 'duplicate' si el ingreso ya existe — en ese caso NO reintentar."""
+    if amount <= 0:
+        return {"status": "error", "error_message": "El monto debe ser mayor a 0"}
+
+    db = get_db()
+    now = datetime.utcnow()
+    user_id = current_user_id()
+
+    fecha_pago = datetime.fromisoformat(payment_date) if payment_date else now
+    periodo = period if _is_valid_period(period) else fecha_pago.strftime("%Y-%m")
+
+    if notes:
+        dedup_q = {
+            "user_id": user_id,
+            "type": "income",
+            "amount": amount,
+            "currency": currency,
+            "notes": notes,
+            "period": periodo,
+        }
+    else:
+        dedup_q = {
+            "user_id": user_id,
+            "type": "income",
+            "amount": amount,
+            "currency": currency,
+            "created_at": {"$gte": now - timedelta(minutes=5)},
+        }
+
+    existing = await db["payments"].find_one(dedup_q)
+    if existing:
+        return {
+            "status": "duplicate",
+            "payment_id": str(existing["_id"]),
+            "message": "Este ingreso ya existe. No se volvió a registrar.",
+        }
+
+    doc = {
+        "user_id": user_id,
+        "type": "income",
+        "amount": amount,
+        "currency": currency,
+        "payment_date": fecha_pago,
+        "status": "paid",
+        "input_method": "manual",
+        "period": periodo,
+        "created_at": now,
+    }
+    if notes:
+        doc["notes"] = notes
+
+    result = await db["payments"].insert_one(doc)
+    return {"status": "success", "payment_id": str(result.inserted_id)}
+
+
 async def get_monthly_finance_summary(period: str) -> dict:
     """Compara gastos del mes contra sueldo y presupuesto guardados."""
     if not _is_valid_period(period):

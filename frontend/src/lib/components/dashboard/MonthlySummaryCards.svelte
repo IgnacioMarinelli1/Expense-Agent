@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { ArrowDownRight, ArrowUpRight, PiggyBank, Wallet, Gauge, CalendarDays } from '@lucide/svelte'
+    import { ArrowDownRight, ArrowUpRight, PiggyBank, Wallet, Gauge, CalendarDays, ShieldCheck, Banknote } from '@lucide/svelte'
     import type { DashboardSummary } from '$lib/stores/dashboard.svelte'
     import { formatArs } from '$lib/stores/currency.svelte'
 
@@ -9,12 +9,16 @@
 
     const pct = (value: number | null | undefined) =>
         value === null || value === undefined ? 'Sin presupuesto' : `${Math.round(value)}%`
+
+    const budgetRemaining = $derived(
+        summary.budget != null ? summary.budget - summary.expenses : null
+    )
 </script>
 
-<section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+<section class="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
     <div class="rounded-lg border border-border bg-card p-4">
         <div class="mb-3 flex items-center justify-between text-muted-foreground">
-            <span class="text-xs font-medium">Ingresos</span>
+            <span class="text-xs font-medium">Sueldo</span>
             <ArrowUpRight class="size-4 text-emerald-500" />
         </div>
         <p class="text-2xl font-semibold">{fmt(summary.income)}</p>
@@ -56,9 +60,31 @@
 
     <div class="rounded-lg border border-border bg-card p-4">
         <div class="mb-3 flex items-center justify-between text-muted-foreground">
+            <span class="text-xs font-medium">Presupuesto disponible</span>
+            <ShieldCheck class="size-4 text-violet-500" />
+        </div>
+        {#if budgetRemaining !== null}
+            <p class="text-2xl font-semibold" class:text-emerald-500={budgetRemaining >= 0} class:text-red-500={budgetRemaining < 0}>
+                {fmt(budgetRemaining)}
+            </p>
+        {:else}
+            <p class="text-2xl font-semibold text-muted-foreground">Sin presupuesto</p>
+        {/if}
+    </div>
+
+    <div class="rounded-lg border border-border bg-card p-4">
+        <div class="mb-3 flex items-center justify-between text-muted-foreground">
             <span class="text-xs font-medium">Promedio diario</span>
             <CalendarDays class="size-4 text-sky-500" />
         </div>
         <p class="text-2xl font-semibold">{fmt(summary.daily_average_expense)}</p>
+    </div>
+
+    <div class="rounded-lg border border-border bg-card p-4">
+        <div class="mb-3 flex items-center justify-between text-muted-foreground">
+            <span class="text-xs font-medium">Cobrado</span>
+            <Banknote class="size-4 text-emerald-400" />
+        </div>
+        <p class="text-2xl font-semibold">{fmt(summary.cobrado)}</p>
     </div>
 </section>

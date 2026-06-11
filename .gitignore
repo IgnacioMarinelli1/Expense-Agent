@@ -10,3 +10,7 @@ venv/
 sessions.db
 package-lock.json
 /package.json
+
+# Firebase
+firebase-debug.log
+.firebase/
